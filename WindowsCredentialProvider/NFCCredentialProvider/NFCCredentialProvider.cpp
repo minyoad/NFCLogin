@@ -1,64 +1,35 @@
 #include "NFCCredentialProvider.h"
 #include "NFCCredentialProviderCredential.h"
-#include <windows.h>
 #include <credentialprovider.h>
-#include <shlguid.h>
+#include <shlwapi.h>
 #include <strsafe.h>
-#include <wincred.h>
 #include <iostream>
-#include <fstream>
-#include <sstream>
 
-// 全局变量
-long g_cRef = 0;
-HINSTANCE g_hinst = NULL;
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "credui.lib")
+#pragma comment(lib, "advapi32.lib")
 
-// 日志记录函数
-void LogMessage(const std::string& message) {
-    std::ofstream log("C:\\NFCLogin\\logs\\credential_provider.log", std::ios::app);
-    if (log.is_open()) {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
-        log << "[" << st.wYear << "-" << st.wMonth << "-" << st.wDay << " " 
-            << st.wHour << ":" << st.wMinute << ":" << st.wSecond << "] " 
-            << message << std::endl;
-        log.close();
-    }
-}
-
-// DLL入口点
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved) {
-    switch (fdwReason) {
-    case DLL_PROCESS_ATTACH:
-        g_hinst = hinstDLL;
-        DisableThreadLibraryCalls(hinstDLL);
-        LogMessage("NFC Credential Provider DLL loaded");
-        break;
-    case DLL_PROCESS_DETACH:
-        LogMessage("NFC Credential Provider DLL unloaded");
-        break;
-    }
-    return TRUE;
-}
+// 全局实例计数
+static LONG g_cRefModule = 0;
 
 // 类工厂
-class CProviderFactory : public IClassFactory {
+class CClassFactory : public IClassFactory {
 public:
     // IUnknown
-    STDMETHODIMP QueryInterface(REFIID riid, void **ppv) {
+    IFACEMETHODIMP QueryInterface(REFIID riid, void **ppv) {
         static const QITAB qit[] = {
-            QITABENT(CProviderFactory, IClassFactory),
+            QITABENT(CClassFactory, IClassFactory),
             {0}
         };
         return QISearch(this, qit, riid, ppv);
     }
 
-    STDMETHODIMP_(ULONG) AddRef() {
-        return InterlockedIncrement(&g_cRef);
+    IFACEMETHODIMP_(ULONG) AddRef() {
+        return InterlockedIncrement(&m_cRef);
     }
 
-    STDMETHODIMP_(ULONG) Release() {
-        ULONG cRef = InterlockedDecrement(&g_cRef);
+    IFACEMETHODIMP_(ULONG) Release() {
+        ULONG cRef = InterlockedDecrement(&m_cRef);
         if (!cRef) {
             delete this;
         }
@@ -66,9 +37,9 @@ public:
     }
 
     // IClassFactory
-    STDMETHODIMP CreateInstance(IUnknown *pUnkOuter, REFIID riid, void **ppv) {
+    IFACEMETHODIMP CreateInstance(IUnknown *punkOuter, REFIID riid, void **ppv) {
         HRESULT hr;
-        if (pUnkOuter != NULL) {
+        if (punkOuter) {
             hr = CLASS_E_NOAGGREGATION;
         } else {
             NFCCredentialProvider *pProvider = new NFCCredentialProvider();
@@ -82,36 +53,220 @@ public:
         return hr;
     }
 
-    STDMETHODIMP LockServer(BOOL fLock) {
+    IFACEMETHODIMP LockServer(BOOL fLock) {
         if (fLock) {
-            InterlockedIncrement(&g_cRef);
+            InterlockedIncrement(&g_cRefModule);
         } else {
-            InterlockedDecrement(&g_cRef);
+            InterlockedDecrement(&g_cRefModule);
         }
         return S_OK;
     }
+
+    CClassFactory() : m_cRef(1) {
+        InterlockedIncrement(&g_cRefModule);
+    }
+
+private:
+    LONG m_cRef;
 };
+
+// NFCCredentialProvider实现
+
+NFCCredentialProvider::NFCCredentialProvider() : 
+    m_cRef(1), m_cpus(CPUS_LOGON), m_rgcpfd(nullptr), m_dwFieldCount(0), 
+    m_rgpcpc(nullptr), m_dwCredentialCount(0) {
+    InterlockedIncrement(&g_cRefModule);
+    LogMessage("Provider created");
+}
+
+NFCCredentialProvider::~NFCCredentialProvider() {
+    if (m_rgpcpc) {
+        for (DWORD i = 0; i < m_dwCredentialCount; i++) {
+            if (m_rgpcpc[i]) {
+                m_rgpcpc[i]->Release();
+            }
+        }
+        CoTaskMemFree(m_rgpcpc);
+    }
+    
+    if (m_rgcpfd) {
+        for (DWORD i = 0; i < m_dwFieldCount; i++) {
+            CoTaskMemFree(m_rgcpfd[i].pszLabel);
+        }
+        CoTaskMemFree(m_rgcpfd);
+    }
+    
+    InterlockedDecrement(&g_cRefModule);
+    LogMessage("Provider destroyed");
+}
+
+// IUnknown实现
+STDMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
+    static const QITAB qit[] = {
+        QITABENT(NFCCredentialProvider, ICredentialProvider),
+        {0}
+    };
+    return QISearch(this, qit, riid, ppv);
+}
+
+STDMETHODIMP_(ULONG) NFCCredentialProvider::AddRef() {
+    return InterlockedIncrement(&m_cRef);
+}
+
+STDMETHODIMP_(ULONG) NFCCredentialProvider::Release() {
+    ULONG cRef = InterlockedDecrement(&m_cRef);
+    if (!cRef) {
+        delete this;
+    }
+    return cRef;
+}
+
+// ICredentialProvider实现
+STDMETHODIMP NFCCredentialProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags) {
+    m_cpus = cpus;
+    m_dwFlags = dwFlags;
+    
+    LogMessage("SetUsageScenario called");
+    return S_OK;
+}
+
+STDMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
+    if (pdwCount) {
+        *pdwCount = 1; // 提供一个凭据
+    }
+    
+    if (pdwDefault) {
+        *pdwDefault = 0; // 默认凭据索引
+    }
+    
+    if (pbAutoLogonWithDefault) {
+        *pbAutoLogonWithDefault = FALSE; // 不自动登录
+    }
+    
+    LogMessage("GetCredentialCount called");
+    return S_OK;
+}
+
+STDMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
+    if (dwIndex != 0 || !ppcpc) {
+        return E_INVALIDARG;
+    }
+    
+    NFCCredentialProviderCredential *pCredential = new NFCCredentialProviderCredential();
+    if (!pCredential) {
+        return E_OUTOFMEMORY;
+    }
+    
+    HRESULT hr = pCredential->Initialize(m_cpus, nullptr, m_dwFlags);
+    if (SUCCEEDED(hr)) {
+        hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+    }
+    
+    pCredential->Release();
+    
+    LogMessage("GetCredentialAt called");
+    return hr;
+}
+
+STDMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
+    if (pdwCount) {
+        *pdwCount = 6; // 6个字段
+    }
+    return S_OK;
+}
+
+STDMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd) {
+    if (!ppcpfd || dwIndex >= 6) {
+        return E_INVALIDARG;
+    }
+    
+    *ppcpfd = (CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR*)CoTaskMemAlloc(sizeof(CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR));
+    if (!*ppcpfd) {
+        return E_OUTOFMEMORY;
+    }
+    
+    ZeroMemory(*ppcpfd, sizeof(CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR));
+    
+    switch (dwIndex) {
+    case 0: // 图标
+        (*ppcpfd)->dwFieldID = 0;
+        (*ppcpfd)->cpft = CPFT_TILE_IMAGE;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"TileImage");
+        break;
+    case 1: // 用户名
+        (*ppcpfd)->dwFieldID = 1;
+        (*ppcpfd)->cpft = CPFT_EDIT_TEXT;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Username");
+        break;
+    case 2: // 密码
+        (*ppcpfd)->dwFieldID = 2;
+        (*ppcpfd)->cpft = CPFT_PASSWORD_TEXT;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Password");
+        break;
+    case 3: // NFC标签
+        (*ppcpfd)->dwFieldID = 3;
+        (*ppcpfd)->cpft = CPFT_SMALL_TEXT;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"NFC Card");
+        break;
+    case 4: // NFC状态
+        (*ppcpfd)->dwFieldID = 4;
+        (*ppcpfd)->cpft = CPFT_LARGE_TEXT;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Waiting for NFC card...");
+        break;
+    case 5: // 提交按钮
+        (*ppcpfd)->dwFieldID = 5;
+        (*ppcpfd)->cpft = CPFT_SUBMIT_BUTTON;
+        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
+        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Log On");
+        break;
+    }
+    
+    (*ppcpfd)->guidFieldType = GUID_NULL;
+    (*ppcpfd)->dwFieldID = dwIndex;
+    
+    LogMessage("GetFieldDescriptorAt called");
+    return S_OK;
+}
+
+STDMETHODIMP NFCCredentialProvider::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr, 
+                                                    CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
+                                                    PWSTR *ppszOptionalStatusText, 
+                                                    CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
+    if (pcpgsr) {
+        *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
+    }
+    
+    LogMessage("GetSerialization called");
+    return S_OK;
+}
 
 // DLL导出函数
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv) {
-    HRESULT hr = CLASS_E_CLASSNOTAVAILABLE;
+    *ppv = nullptr;
+    
+    HRESULT hr = E_FAIL;
     if (IsEqualCLSID(rclsid, CLSID_NFCCredentialProvider)) {
-        CProviderFactory *pFactory = new CProviderFactory();
-        if (pFactory) {
-            hr = pFactory->QueryInterface(riid, ppv);
-            pFactory->Release();
+        CClassFactory *pClassFactory = new CClassFactory();
+        if (pClassFactory) {
+            hr = pClassFactory->QueryInterface(riid, ppv);
+            pClassFactory->Release();
         } else {
             hr = E_OUTOFMEMORY;
         }
     }
+    
     return hr;
 }
 
 STDAPI DllCanUnloadNow() {
-    return g_cRef ? S_FALSE : S_OK;
+    return g_cRefModule > 0 ? S_FALSE : S_OK;
 }
 
-// 注册函数
 STDAPI DllRegisterServer() {
     HRESULT hr = S_OK;
     
@@ -121,33 +276,58 @@ STDAPI DllRegisterServer() {
     WCHAR szModule[MAX_PATH];
     
     if (SUCCEEDED(hr)) {
-        hr = StringCchPrintfW(szModule, ARRAYSIZE(szModule), L"%s\%s", L"Software\\Classes\\CLSID", 
+        hr = StringCchPrintfW(szModule, ARRAYSIZE(szModule), L"%s\\%s", L"Software\\Classes\\CLSID", 
                               SZ_CLSID_NFCCredentialProvider);
     }
     
     if (SUCCEEDED(hr)) {
         hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, szModule, 0, NULL, 
-                                                 REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
+                                             REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
     }
     
     if (SUCCEEDED(hr)) {
-        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, NULL, 0, REG_SZ, 
-                                                (LPBYTE)L"NFC Credential Provider", 
-                                                sizeof(L"NFC Credential Provider")));
+        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, nullptr, 0, REG_SZ, 
+                                             (LPBYTE)L"NFC Credential Provider", sizeof(L"NFC Credential Provider")));
         RegCloseKey(hKey);
     }
     
     // 注册为凭证提供程序
     if (SUCCEEDED(hr)) {
         hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
-                                                 L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}", 
-                                                 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
+                                             L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}", 
+                                             0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
     }
     
     if (SUCCEEDED(hr)) {
-        dwData = 1;
-        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, L"Disabled", 0, REG_DWORD, 
-                                                (LPBYTE)&dwData, sizeof(dwData)));
+        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, nullptr, 0, REG_SZ, 
+                                             (LPBYTE)L"NFC Credential Provider", sizeof(L"NFC Credential Provider")));
+        RegCloseKey(hKey);
+    }
+    
+    // 注册DLL路径
+    if (SUCCEEDED(hr)) {
+        hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
+                                             L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}\\InprocServer32", 
+                                             0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
+    }
+    
+    if (SUCCEEDED(hr)) {
+        GetModuleFileNameW(HINST_THISDLL, szModule, ARRAYSIZE(szModule));
+        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, nullptr, 0, REG_SZ, 
+                                             (LPBYTE)szModule, (lstrlenW(szModule) + 1) * sizeof(WCHAR)));
+        RegCloseKey(hKey);
+    }
+    
+    // 设置线程模型
+    if (SUCCEEDED(hr)) {
+        hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
+                                             L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}\\InprocServer32", 
+                                             0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
+    }
+    
+    if (SUCCEEDED(hr)) {
+        hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, L"ThreadingModel", 0, REG_SZ, 
+                                             (LPBYTE)L"Apartment", sizeof(L"Apartment")));
         RegCloseKey(hKey);
     }
     
@@ -155,19 +335,31 @@ STDAPI DllRegisterServer() {
     return hr;
 }
 
-// 卸载函数
 STDAPI DllUnregisterServer() {
     HRESULT hr = S_OK;
     
     // 删除注册表项
-    WCHAR szModule[MAX_PATH];
-    StringCchPrintfW(szModule, ARRAYSIZE(szModule), L"%s\\%s", L"Software\\Classes\\CLSID", 
-                      SZ_CLSID_NFCCredentialProvider);
+    hr = HRESULT_FROM_WIN32(RegDeleteTreeW(HKEY_LOCAL_MACHINE, 
+                                         L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"));
     
-    RegDeleteTreeW(HKEY_LOCAL_MACHINE, szModule);
-    RegDeleteTreeW(HKEY_LOCAL_MACHINE, 
-                    L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}");
+    hr = HRESULT_FROM_WIN32(RegDeleteTreeW(HKEY_LOCAL_MACHINE, 
+                                         L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"));
     
     LogMessage("Credential Provider unregistered");
     return hr;
+}
+
+// DLL入口点
+HINSTANCE g_hinst = nullptr;
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
+    switch (dwReason) {
+    case DLL_PROCESS_ATTACH:
+        g_hinst = hModule;
+        DisableThreadLibraryCalls(hModule);
+        break;
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
 }

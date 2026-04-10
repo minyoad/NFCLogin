@@ -1,80 +1,56 @@
-name: Build and Release NFC Login System
+name: Build NFC Login System
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ main ]
-  release:
-    types: [ created ]
+    branches: [ "main", "master" ]
 
 jobs:
-  build:
+  build-winforms:
+    name: Build WinForms App
     runs-on: windows-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
     
-    - name: Setup .NET
+    - name: Setup .NET SDK
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
     
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-      
-    - name: Restore dependencies
-      run: dotnet restore NFCLoginSystem.sln
-      
-    - name: Build
-      run: dotnet build NFCLoginSystem.sln --configuration Release --no-restore
-      
-    - name: Test
-      run: dotnet test NFCLoginSystem.sln --configuration Release --no-build --verbosity normal
-      
-    - name: Publish Windows x64
-      run: |
-        dotnet publish NFCLoginSystem/NFCLoginSystem.csproj `
-          --configuration Release `
-          --runtime win-x64 `
-          --self-contained true `
-          --output ./publish/win-x64 `
-          -p:PublishSingleFile=true `
-          -p:IncludeNativeLibrariesForSelfExtract=true
-          
-    - name: Create Release Archive
-      run: |
-        Compress-Archive -Path ./publish/win-x64/* -DestinationPath ./NFCLoginSystem-win-x64.zip
-        
-    - name: Upload Build Artifacts
+    - name: Restore .NET dependencies
+      run: dotnet restore NFCLoginSystem/NFCLoginSystem.csproj
+    
+    - name: Build WinForms Application
+      run: dotnet build NFCLoginSystem/NFCLoginSystem.csproj --configuration Release --no-restore
+    
+    - name: Publish WinForms Application
+      run: dotnet publish NFCLoginSystem/NFCLoginSystem.csproj --configuration Release --self-contained --runtime win-x64 --output ./publish/winforms
+    
+    - name: Upload WinForms Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: NFCLoginSystem-win-x64
-        path: ./publish/win-x64/
-        
-    - name: Upload Release Archive
-      uses: actions/upload-artifact@v4
-      with:
-        name: NFCLoginSystem-win-x64-zip
-        path: ./NFCLoginSystem-win-x64.zip
+        name: nfc-login-winforms-artifact
+        path: ./publish/winforms
 
-  release:
-    needs: build
+  build-credential-provider:
+    name: Build Credential Provider
     runs-on: windows-latest
-    if: github.event_name == 'release'
     
     steps:
-    - name: Download Build Artifacts
-      uses: actions/download-artifact@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+    
+    - name: Build Credential Provider
+      run: msbuild WindowsCredentialProvider/NFCCredentialProvider/NFCCredentialProvider.sln /p:Configuration=Release /p:Platform=x64
+    
+    - name: Upload Credential Provider Artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: NFCLoginSystem-win-x64-zip
-        
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./NFCLoginSystem-win-x64.zip
-        asset_name: NFCLoginSystem-win-x64.zip
-        asset_content_type: application/zip
+        name: nfc-credential-provider-artifact
+        path: WindowsCredentialProvider/NFCCredentialProvider/x64/Release/
