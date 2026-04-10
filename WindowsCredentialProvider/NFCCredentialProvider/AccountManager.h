@@ -2,8 +2,11 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 #include <map>
 #include <memory>
+#include <fstream>
+#include <sstream>
 
 // 账户管理器类
 class AccountManager {
@@ -74,3 +77,4 @@ std::wstring GetUserFullName(const std::wstring& username);
 bool ValidateUsername(const std::wstring& username);
 bool ValidatePassword(const std::wstring& password);
 bool ValidateNFCCardUID(const std::string& uid);
+std::wstring GetCurrentTimestamp();

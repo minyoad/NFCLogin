@@ -2,6 +2,10 @@
 
 #include <windows.h>
 #include <credentialprovider.h>
+#include <shlwapi.h>
+#include <security.h>
+#include <ntsecapi.h>
+#include <vector>
 #include <string>
 
 // 前向声明
@@ -30,8 +34,8 @@ public:
     IFACEMETHODIMP SetCheckboxValue(DWORD dwFieldID, BOOL bChecked);
     IFACEMETHODIMP SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSelectedItem);
     IFACEMETHODIMP CommandLinkClicked(DWORD dwFieldID);
-    IFACEMETHODIMP GetSerialization(CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
-                                   CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs2, 
+    IFACEMETHODIMP GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr,
+                                   CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
                                    PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon);
     IFACEMETHODIMP ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, 
                                PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon);

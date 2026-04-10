@@ -11,6 +11,7 @@
 
 // 全局实例计数
 static LONG g_cRefModule = 0;
+static HINSTANCE g_hinst = nullptr;
 
 // 类工厂
 class CClassFactory : public IClassFactory {
@@ -74,7 +75,7 @@ private:
 
 NFCCredentialProvider::NFCCredentialProvider() : 
     m_cRef(1), m_cpus(CPUS_LOGON), m_rgcpfd(nullptr), m_dwFieldCount(0), 
-    m_rgpcpc(nullptr), m_dwCredentialCount(0) {
+    m_rgpcpc(nullptr), m_dwCredentialCount(0), m_pcpe(nullptr), m_upAdviseContext(0) {
     InterlockedIncrement(&g_cRefModule);
     LogMessage("Provider created");
 }
@@ -89,9 +90,16 @@ NFCCredentialProvider::~NFCCredentialProvider() {
         CoTaskMemFree(m_rgpcpc);
     }
     
+    if (m_pcpe) {
+        m_pcpe->Release();
+        m_pcpe = nullptr;
+    }
+    
     if (m_rgcpfd) {
         for (DWORD i = 0; i < m_dwFieldCount; i++) {
-            CoTaskMemFree(m_rgcpfd[i].pszLabel);
+            if (m_rgcpfd[i].pszLabel) {
+                CoTaskMemFree(m_rgcpfd[i].pszLabel);
+            }
         }
         CoTaskMemFree(m_rgcpfd);
     }
@@ -101,7 +109,7 @@ NFCCredentialProvider::~NFCCredentialProvider() {
 }
 
 // IUnknown实现
-STDMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
+IFACEMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
     static const QITAB qit[] = {
         QITABENT(NFCCredentialProvider, ICredentialProvider),
         {0}
@@ -109,28 +117,57 @@ STDMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
     return QISearch(this, qit, riid, ppv);
 }
 
-STDMETHODIMP_(ULONG) NFCCredentialProvider::AddRef() {
+IFACEMETHODIMP_(ULONG) NFCCredentialProvider::AddRef() {
     return InterlockedIncrement(&m_cRef);
 }
 
-STDMETHODIMP_(ULONG) NFCCredentialProvider::Release() {
+IFACEMETHODIMP_(ULONG) NFCCredentialProvider::Release() {
     ULONG cRef = InterlockedDecrement(&m_cRef);
-    if (!cRef) {
+    if (cRef == 0) {
         delete this;
     }
     return cRef;
 }
 
 // ICredentialProvider实现
-STDMETHODIMP NFCCredentialProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags) {
+IFACEMETHODIMP NFCCredentialProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags) {
     m_cpus = cpus;
-    m_dwFlags = dwFlags;
-    
     LogMessage("SetUsageScenario called");
     return S_OK;
 }
 
-STDMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
+IFACEMETHODIMP NFCCredentialProvider::SetSerialization(const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs) {
+    LogMessage("SetSerialization called");
+    return S_OK;
+}
+
+IFACEMETHODIMP NFCCredentialProvider::Advise(ICredentialProviderEvents *pcpe, UINT_PTR upAdviseContext) {
+    if (m_pcpe) {
+        m_pcpe->Release();
+    }
+    
+    m_pcpe = pcpe;
+    if (m_pcpe) {
+        m_pcpe->AddRef();
+    }
+    
+    m_upAdviseContext = upAdviseContext;
+    LogMessage("Advise called");
+    return S_OK;
+}
+
+IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
+    if (m_pcpe) {
+        m_pcpe->Release();
+        m_pcpe = nullptr;
+    }
+    
+    m_upAdviseContext = 0;
+    LogMessage("UnAdvise called");
+    return S_OK;
+}
+
+IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
     if (pdwCount) {
         *pdwCount = 1; // 提供一个凭据
     }
@@ -147,7 +184,7 @@ STDMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *p
     return S_OK;
 }
 
-STDMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
+IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
     if (dwIndex != 0 || !ppcpc) {
         return E_INVALIDARG;
     }
@@ -157,25 +194,21 @@ STDMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialPr
         return E_OUTOFMEMORY;
     }
     
-    HRESULT hr = pCredential->Initialize(m_cpus, nullptr, m_dwFlags);
-    if (SUCCEEDED(hr)) {
-        hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
-    }
-    
+    HRESULT hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
     pCredential->Release();
     
     LogMessage("GetCredentialAt called");
     return hr;
 }
 
-STDMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
+IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
     if (pdwCount) {
         *pdwCount = 6; // 6个字段
     }
     return S_OK;
 }
 
-STDMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd) {
+IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd) {
     if (!ppcpfd || dwIndex >= 6) {
         return E_INVALIDARG;
     }
@@ -230,18 +263,6 @@ STDMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTI
     (*ppcpfd)->dwFieldID = dwIndex;
     
     LogMessage("GetFieldDescriptorAt called");
-    return S_OK;
-}
-
-STDMETHODIMP NFCCredentialProvider::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr, 
-                                                    CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
-                                                    PWSTR *ppszOptionalStatusText, 
-                                                    CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
-    if (pcpgsr) {
-        *pcpgsr = CPGSR_NO_CREDENTIAL_NOT_FINISHED;
-    }
-    
-    LogMessage("GetSerialization called");
     return S_OK;
 }
 
@@ -312,7 +333,7 @@ STDAPI DllRegisterServer() {
     }
     
     if (SUCCEEDED(hr)) {
-        GetModuleFileNameW(HINST_THISDLL, szModule, ARRAYSIZE(szModule));
+        GetModuleFileNameW(g_hinst, szModule, ARRAYSIZE(szModule));
         hr = HRESULT_FROM_WIN32(RegSetValueExW(hKey, nullptr, 0, REG_SZ, 
                                              (LPBYTE)szModule, (lstrlenW(szModule) + 1) * sizeof(WCHAR)));
         RegCloseKey(hKey);
@@ -350,8 +371,6 @@ STDAPI DllUnregisterServer() {
 }
 
 // DLL入口点
-HINSTANCE g_hinst = nullptr;
-
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
     switch (dwReason) {
     case DLL_PROCESS_ATTACH:

@@ -1,10 +1,9 @@
 #include "AccountManager.h"
 #include <windows.h>
 #include <lm.h>
+#include <lmapibuf.h>
 #include <wincred.h>
 #include <shlobj.h>
-#include <fstream>
-#include <sstream>
 #include <iomanip>
 
 #pragma comment(lib, "netapi32.lib")

@@ -4,6 +4,11 @@
 #include <credentialprovider.h>
 #include <unknwn.h>
 #include <strsafe.h>
+#include <shlwapi.h>
+#include <shlobj.h>
+#include <ntsecapi.h>
+#include <security.h>
+#include <vector>
 #include <fstream>
 #include <string>
 
@@ -69,14 +74,13 @@ public:
 
     // ICredentialProvider
     IFACEMETHODIMP SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags);
+    IFACEMETHODIMP SetSerialization(const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs);
+    IFACEMETHODIMP Advise(ICredentialProviderEvents *pcpe, UINT_PTR upAdviseContext);
+    IFACEMETHODIMP UnAdvise();
     IFACEMETHODIMP GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault);
     IFACEMETHODIMP GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc);
     IFACEMETHODIMP GetFieldDescriptorCount(DWORD *pdwCount);
     IFACEMETHODIMP GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd);
-    IFACEMETHODIMP GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr, 
-                                   CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
-                                   PWSTR *ppszOptionalStatusText, 
-                                   CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon);
 
 public:
     NFCCredentialProvider();
@@ -89,4 +93,6 @@ private:
     DWORD m_dwFieldCount;           // 字段数量
     ICredentialProviderCredential **m_rgpcpc;  // 凭据数组
     DWORD m_dwCredentialCount;      // 凭据数量
+    ICredentialProviderEvents *m_pcpe;  // 事件接口
+    UINT_PTR m_upAdviseContext;     // 建议上下文
 };

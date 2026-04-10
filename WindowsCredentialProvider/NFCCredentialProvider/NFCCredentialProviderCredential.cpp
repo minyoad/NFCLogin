@@ -3,9 +3,14 @@
 #include "AccountManager.h"
 #include <windows.h>
 #include <strsafe.h>
+#include <shlwapi.h>
+#include <security.h>
+#include <ntsecapi.h>
+#include <shlobj.h>
 #include <sstream>
 #include <fstream>
 #include <iomanip>
+#include <vector>
 
 // 字段ID定义
 enum FIELDS {
@@ -263,25 +268,23 @@ IFACEMETHODIMP NFCCredentialProviderCredential::SetStringValue(DWORD dwFieldID, 
     return hr;
 }
 
-IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
-                                                                 CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs2, 
-                                                                 PWSTR *ppszOptionalStatusText, 
-                                                                 CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
+IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr,
+                                                                CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
+                                                                PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
     HRESULT hr = E_INVALIDARG;
     
-    if (pcpcs && ppszOptionalStatusText && pcpsiOptionalStatusIcon) {
+    if (pcpgsr && pcpcs && ppszOptionalStatusText && pcpsiOptionalStatusIcon) {
+        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
         *ppszOptionalStatusText = nullptr;
         *pcpsiOptionalStatusIcon = CPSI_NONE;
         
         // 验证凭据
         if (_ValidateCredentials()) {
             // 创建KERB_INTERACTIVE_LOGON结构
-            KERB_INTERACTIVE_LOGON kil;
+            KERB_INTERACTIVE_LOGON kil = {0};
             kil.MessageType = KerbInteractiveLogon;
             
             // 设置用户名
-            WCHAR wszUsername[256];
-            StringCchCopyW(wszUsername, ARRAYSIZE(wszUsername), m_strUsername.c_str());
             kil.UserName.Buffer = (PWSTR)CoTaskMemAlloc((m_strUsername.length() + 1) * sizeof(WCHAR));
             if (kil.UserName.Buffer) {
                 StringCchCopyW(kil.UserName.Buffer, m_strUsername.length() + 1, m_strUsername.c_str());
@@ -392,7 +395,7 @@ HRESULT NFCCredentialProviderCredential::_TryNFCLogin() {
             
             // 更新UI
             if (m_pcpce) {
-                m_pcpce->CredentialsChanged(0);
+                m_pcpce->SetFieldString(this, FIELD_USERNAME, m_strUsername.c_str());
             }
             
             LogMessage("NFC login successful for user: " + std::string(username.begin(), username.end()));
@@ -413,5 +416,9 @@ bool NFCCredentialProviderCredential::_ValidateCredentials() {
     HRESULT hr = m_pAccountManager->ValidateLocalUserCredentials(m_strUsername, m_strPassword);
     return SUCCEEDED(hr);
 }
+
+#pragma comment(lib, "credui.lib")
+#pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "shlwapi.lib")
 
 // 全局辅助函数 - 已移动到AccountManager类中
