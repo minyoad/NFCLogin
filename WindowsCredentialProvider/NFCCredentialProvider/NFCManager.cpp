@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <iostream>
 
 #pragma comment(lib, "winscard.lib")
 
@@ -89,54 +90,31 @@ std::string GetCurrentTimestamp() {
 }
 
 std::string GetPCSCErrorString(LONG errorCode) {
-    switch (errorCode) {
-        case SCARD_S_SUCCESS:
-            return "操作成功";
-        case SCARD_E_CANCELLED:
-            return "操作被取消";
-        case SCARD_E_CANT_DISPOSE:
-            return "无法释放资源";
-        case SCARD_E_INSUFFICIENT_BUFFER:
-            return "缓冲区不足";
-        case SCARD_E_INVALID_ATR:
-            return "无效的ATR";
-        case SCARD_E_INVALID_HANDLE:
-            return "无效句柄";
-        case SCARD_E_INVALID_PARAMETER:
-            return "无效参数";
-        case SCARD_E_INVALID_TARGET:
-            return "无效目标";
-        case SCARD_E_INVALID_VALUE:
-            return "无效值";
-        case SCARD_E_NO_MEMORY:
-            return "内存不足";
-        case SCARD_E_UNKNOWN_CARD:
-            return "未知卡片";
-        case SCARD_E_UNKNOWN_READER:
-            return "未知读卡器";
-        case SCARD_E_NO_SERVICE:
-            return "PCSC服务未运行";
-        case SCARD_E_NO_SMARTCARD:
-            return "未检测到智能卡";
-        case SCARD_E_NOT_READY:
-            return "读卡器未就绪";
-        case SCARD_E_NOT_TRANSACTED:
-            return "交易未完成";
-        case SCARD_E_PROTO_MISMATCH:
-            return "协议不匹配";
-        case SCARD_E_READER_UNAVAILABLE:
-            return "读卡器不可用";
-        case SCARD_E_SHARING_VIOLATION:
-            return "共享冲突";
-        case SCARD_E_TIMEOUT:
-            return "操作超时";
-        case SCARD_E_UNPOWERED_CARD:
-            return "卡片未供电";
-        case SCARD_E_UNSUPPORTED_CARD:
-            return "不支持的卡片";
-        default:
-            return "未知错误: " + std::to_string(errorCode);
-    }
+    // 简化的错误处理，避免switch语句的编译问题
+    if (errorCode == SCARD_S_SUCCESS) return "操作成功";
+    if (errorCode == SCARD_E_CANCELLED) return "操作被取消";
+    if (errorCode == SCARD_E_CANT_DISPOSE) return "无法释放资源";
+    if (errorCode == SCARD_E_INSUFFICIENT_BUFFER) return "缓冲区不足";
+    if (errorCode == SCARD_E_INVALID_ATR) return "无效的ATR";
+    if (errorCode == SCARD_E_INVALID_HANDLE) return "无效句柄";
+    if (errorCode == SCARD_E_INVALID_PARAMETER) return "无效参数";
+    if (errorCode == SCARD_E_INVALID_TARGET) return "无效目标";
+    if (errorCode == SCARD_E_INVALID_VALUE) return "无效值";
+    if (errorCode == SCARD_E_NO_MEMORY) return "内存不足";
+    if (errorCode == SCARD_E_UNKNOWN_CARD) return "未知卡片";
+    if (errorCode == SCARD_E_UNKNOWN_READER) return "未知读卡器";
+    if (errorCode == SCARD_E_NO_SERVICE) return "PCSC服务未运行";
+    if (errorCode == SCARD_E_NO_SMARTCARD) return "未检测到智能卡";
+    if (errorCode == SCARD_E_NOT_READY) return "读卡器未就绪";
+    if (errorCode == SCARD_E_NOT_TRANSACTED) return "交易未完成";
+    if (errorCode == SCARD_E_PROTO_MISMATCH) return "协议不匹配";
+    if (errorCode == SCARD_E_READER_UNAVAILABLE) return "读卡器不可用";
+    if (errorCode == SCARD_E_SHARING_VIOLATION) return "共享冲突";
+    if (errorCode == SCARD_E_TIMEOUT) return "操作超时";
+    if (errorCode == SCARD_E_UNPOWERED_CARD) return "卡片未供电";
+    if (errorCode == SCARD_E_UNSUPPORTED_CARD) return "不支持的卡片";
+    
+    return "未知错误: " + std::to_string(errorCode);
 }
 
 // NFCManager类实现
@@ -403,13 +381,11 @@ HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
     ZeroMemory(&m_lastCardInfo, sizeof(m_lastCardInfo));
     
     // 设置UID
-    if (uid.length() < sizeof(m_lastCardInfo.uid)) {
-        strcpy_s(m_lastCardInfo.uid, sizeof(m_lastCardInfo.uid), uid.c_str());
-    }
+    m_lastCardInfo.uid = uid;
 
     // 设置时间戳
     SYSTEMTIME st = GetCurrentSystemTime();
-    m_lastCardInfo.timestamp = st;
+    m_lastCardInfo.detectedTime = st;
 
     // 根据ATR判断卡片类型
     if (dwAtrLen > 0) {
@@ -418,7 +394,7 @@ HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
         // 这里可以根据ATR来判断卡片类型
         // 简化处理，假设为MIFARE卡片
         if (dwAtrLen >= 4 && pbAtr[0] == 0x3B) {
-            m_lastCardInfo.type = NFC_CARD_MIFARE;
+            m_lastCardInfo.type = NFC_CARD_MIFARE_CLASSIC;
             m_lastCardInfo.typeName = "MIFARE";
             m_lastCardInfo.size = 1024; // 1KB
         } else {
