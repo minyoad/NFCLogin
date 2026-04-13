@@ -70,8 +70,6 @@ private:
 };
 
 // 辅助函数
-std::wstring StringToWString(const std::string& str);
-std::string WStringToString(const std::wstring& wstr);
 std::wstring GetLocalAppDataPath();
 std::wstring GetUserFullName(const std::wstring& username);
 bool ValidateUsername(const std::wstring& username);

@@ -1,4 +1,5 @@
 #include "NFCCredentialProviderCredential.h"
+#include "NFCCredentialProviderCredential.h"
 #include "NFCCredentialProvider.h"
 #include "AccountManager.h"
 #include <windows.h>
@@ -372,6 +373,31 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROV
     }
     
     return hr;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD *pcItems, DWORD *pdwSelectedItem) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWSTR *ppszItem) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::SetCheckboxValue(DWORD dwFieldID, BOOL bChecked) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSelectedItem) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::CommandLinkClicked(DWORD dwFieldID) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, 
+                                                            PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
+    return E_NOTIMPL;
 }
 
 // 辅助函数实现

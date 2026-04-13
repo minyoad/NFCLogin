@@ -30,6 +30,7 @@ namespace NFCLoginSystem.Forms
             this.lblSerialPort = new System.Windows.Forms.Label();
             this.btnRefreshPorts = new System.Windows.Forms.Button();
             this.pictureBoxLogo = new System.Windows.Forms.PictureBox();
+            this.btnUserManagement = new System.Windows.Forms.Button();
             this.groupBoxNFC.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxLogo)).BeginInit();
             this.SuspendLayout();

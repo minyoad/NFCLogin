@@ -113,4 +113,5 @@ bool ValidateUIDFormat(const std::string& uid);
 std::string GetCurrentTimestamp();
 std::string GetPCSCErrorString(LONG errorCode);
 std::string WStringToString(const std::wstring& wstr);
+std::wstring StringToWString(const std::string& str);
 SYSTEMTIME GetCurrentSystemTime();
