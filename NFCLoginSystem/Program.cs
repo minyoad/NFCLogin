@@ -14,7 +14,7 @@ namespace NFCLoginSystem
             
             try
             {
-                Application.Run(new LoginForm());
+                Application.Run(new MainForm());
             }
             catch (Exception ex)
             {

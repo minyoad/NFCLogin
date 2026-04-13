@@ -24,6 +24,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="Forms\AddUserForm.cs" />
+    <Compile Remove="Forms\AddUserForm.Designer.cs" />
+    <Compile Remove="Forms\EditUserForm.cs" />
+    <Compile Remove="Forms\EditUserForm.Designer.cs" />
+    <Compile Remove="Forms\LoginForm.cs" />
+    <Compile Remove="Forms\LoginForm.Designer.cs" />
+    <Compile Remove="Forms\UserManagementForm.cs" />
+    <Compile Remove="Forms\UserManagementForm.Designer.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="users.db">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

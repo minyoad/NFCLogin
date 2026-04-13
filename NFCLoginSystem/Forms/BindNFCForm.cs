@@ -1,19 +1,22 @@
 using NFCLoginSystem.Services;
 using System;
-using System.Drawing;
 using System.Windows.Forms;
 
 namespace NFCLoginSystem.Forms
 {
     public partial class BindNFCForm : Form
     {
-        public string? CardId { get; private set; }
         private readonly NFCPCSCService _nfcService;
+        private readonly DatabaseService _dbService;
+        private readonly string _username;
 
-        public BindNFCForm()
+        public BindNFCForm(string username)
         {
             InitializeComponent();
             _nfcService = new NFCPCSCService();
+            _dbService = new DatabaseService();
+            _username = username;
+
             _nfcService.CardDetected += OnCardDetected;
             _nfcService.ReaderStatusChanged += OnReaderStatusChanged;
             _nfcService.StartMonitoring();
@@ -26,9 +29,18 @@ namespace NFCLoginSystem.Forms
                 Invoke(new Action(() => OnCardDetected(sender, cardId)));
                 return;
             }
-            CardId = cardId;
-            DialogResult = DialogResult.OK;
-            Close();
+
+            try
+            {
+                _dbService.UpdateUserNFCCard(_username, cardId);
+                MessageBox.Show($"成功将卡 {cardId} 绑定到用户 {_username}。", "绑定成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"绑定失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void OnReaderStatusChanged(object? sender, string status)

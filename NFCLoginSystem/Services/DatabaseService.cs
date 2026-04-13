@@ -44,6 +44,14 @@ namespace NFCLoginSystem.Services
                 var transaction = connection.BeginTransaction();
                 try
                 {
+                    // Temporarily disable foreign key constraints for the migration
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = "PRAGMA foreign_keys = OFF;";
+                        cmd.ExecuteNonQuery();
+                    }
+
                     var migrationCommands = new[]
                     {
                         "ALTER TABLE Users RENAME TO Users_old;",
@@ -63,6 +71,15 @@ namespace NFCLoginSystem.Services
                         cmd.CommandText = cmdText;
                         cmd.ExecuteNonQuery();
                     }
+                    
+                    // Re-enable foreign key constraints
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = "PRAGMA foreign_keys = ON;";
+                        cmd.ExecuteNonQuery();
+                    }
+
                     transaction.Commit();
                 }
                 catch

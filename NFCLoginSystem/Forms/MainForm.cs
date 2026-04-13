@@ -1,73 +1,109 @@
 using System;
 using System.Windows.Forms;
 using NFCLoginSystem.Services;
+using System.Security.Principal;
 
 namespace NFCLoginSystem.Forms
 {
     public partial class MainForm : Form
     {
-        private readonly AuthenticationService _authService;
+        private readonly DatabaseService _dbService;
+        private readonly string _currentWindowsUser;
+        private Label _nfcStatusLabel;
 
-        public MainForm(AuthenticationService authService)
+        public MainForm()
         {
-            _authService = authService;
-            SetupUI();
+            _dbService = new DatabaseService();
+            _currentWindowsUser = WindowsIdentity.GetCurrent().Name;
+            InitializeComponent();
+            LoadNfcStatus();
         }
 
-        private void SetupUI()
+        private void InitializeComponent()
         {
-            this.Text = $"欢迎, {_authService.CurrentUser?.DisplayName}";
+            this.SuspendLayout();
+            
+            // Window settings
+            this.Text = "NFC 卡管理";
+            this.Size = new System.Drawing.Size(400, 300);
+            this.StartPosition = FormStartPosition.CenterScreen;
 
-            // 根据用户是否为管理员显示不同内容
-            if (_authService.IsCurrentUserAdmin())
+            // Welcome label
+            var welcomeLabel = new Label
             {
-                // 创建用户管理按钮
-                var btnUserManagement = new Button
-                {
-                    Text = "用户管理",
-                    Location = new System.Drawing.Point(50, 50),
-                    Size = new System.Drawing.Size(150, 50)
-                };
-                btnUserManagement.Click += BtnUserManagement_Click;
-                this.Controls.Add(btnUserManagement);
+                Text = $"当前用户: {_currentWindowsUser}",
+                Location = new System.Drawing.Point(20, 20),
+                AutoSize = true
+            };
+            this.Controls.Add(welcomeLabel);
+
+            // NFC Status label
+            _nfcStatusLabel = new Label
+            {
+                Location = new System.Drawing.Point(20, 60),
+                AutoSize = true
+            };
+            this.Controls.Add(_nfcStatusLabel);
+
+            // Bind/Update NFC Card button
+            var bindButton = new Button
+            {
+                Text = "绑定/更新NFC卡",
+                Location = new System.Drawing.Point(20, 100),
+                Size = new System.Drawing.Size(150, 40)
+            };
+            bindButton.Click += BindButton_Click;
+            this.Controls.Add(bindButton);
+
+            // Unbind NFC Card button
+            var unbindButton = new Button
+            {
+                Text = "解绑NFC卡",
+                Location = new System.Drawing.Point(200, 100),
+                Size = new System.Drawing.Size(150, 40)
+            };
+            unbindButton.Click += UnbindButton_Click;
+            this.Controls.Add(unbindButton);
+            
+            this.ResumeLayout(false);
+            this.PerformLayout();
+        }
+
+        private void LoadNfcStatus()
+        {
+            var user = _dbService.GetUserByUsername(_currentWindowsUser);
+            if (user != null && !string.IsNullOrEmpty(user.NFCCardId))
+            {
+                _nfcStatusLabel.Text = $"NFC卡已绑定: {user.NFCCardId}";
             }
             else
             {
-                // 为普通用户显示欢迎信息
-                var lblWelcome = new Label
-                {
-                    Text = "您已成功登录。",
-                    Location = new System.Drawing.Point(50, 50),
-                    AutoSize = true
-                };
-                this.Controls.Add(lblWelcome);
+                _nfcStatusLabel.Text = "NFC卡未绑定";
             }
+        }
 
-            // 创建退出登录按钮
-            var btnLogout = new Button
+        private void BindButton_Click(object sender, EventArgs e)
+        {
+            using (var bindForm = new BindNFCForm(_currentWindowsUser))
             {
-                Text = "退出登录",
-                Location = new System.Drawing.Point(50, 120),
-                Size = new System.Drawing.Size(150, 50)
-            };
-            btnLogout.Click += BtnLogout_Click;
-            this.Controls.Add(btnLogout);
+                bindForm.ShowDialog();
+            }
+            LoadNfcStatus(); // Refresh status after binding
         }
 
-        private void BtnUserManagement_Click(object? sender, EventArgs e)
+        private void UnbindButton_Click(object sender, EventArgs e)
         {
-            // 隐藏主窗体，显示用户管理窗体
-            this.Hide();
-            var userManagementForm = new UserManagementForm(_authService);
-            userManagementForm.ShowDialog();
-            // 用户管理窗体关闭后，重新显示主窗体
-            this.Show();
-        }
-
-        private void BtnLogout_Click(object? sender, EventArgs e)
-        {
-            _authService.Logout();
-            this.Close(); // 关闭主窗体，将返回到登录窗体
+            var user = _dbService.GetUserByUsername(_currentWindowsUser);
+            if (user != null && !string.IsNullOrEmpty(user.NFCCardId))
+            {
+                _dbService.UpdateUserNFCCard(_currentWindowsUser, null);
+                MessageBox.Show("NFC卡已成功解绑。", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadNfcStatus(); // Refresh status
+            }
+            else
+            {
+                MessageBox.Show("当前用户没有绑定NFC卡。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
     }
 }
