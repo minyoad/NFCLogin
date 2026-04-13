@@ -53,6 +53,7 @@ NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
 IFACEMETHODIMP NFCCredentialProviderCredential::QueryInterface(REFIID riid, void **ppv) {
     static const QITAB qit[] = {
         QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential),
+        QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential2),
         {0}
     };
     return QISearch(this, qit, riid, ppv);
@@ -405,6 +406,42 @@ IFACEMETHODIMP NFCCredentialProviderCredential::CommandLinkClicked(DWORD dwField
 IFACEMETHODIMP NFCCredentialProviderCredential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, 
                                                             PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
     return E_NOTIMPL;
+}
+
+// ICredentialProviderCredential2实现
+IFACEMETHODIMP NFCCredentialProviderCredential::GetUserSid(PWSTR *ppszSid) {
+    if (m_strUsername.empty()) {
+        return E_UNEXPECTED;
+    }
+
+    HRESULT hr = E_FAIL;
+    PSID pSid = nullptr;
+    DWORD cbSid = 0;
+    DWORD cchDomain = 0;
+    SID_NAME_USE eUse;
+
+    // 第一次调用LookupAccountName获取SID和domain name的大小
+    LookupAccountNameW(nullptr, m_strUsername.c_str(), nullptr, &cbSid, nullptr, &cchDomain, &eUse);
+
+    if (cbSid > 0) {
+        pSid = (PSID)CoTaskMemAlloc(cbSid);
+        if (pSid) {
+            PWSTR pszDomain = (PWSTR)CoTaskMemAlloc(cchDomain * sizeof(WCHAR));
+            if (pszDomain) {
+                if (LookupAccountNameW(nullptr, m_strUsername.c_str(), pSid, &cbSid, pszDomain, &cchDomain, &eUse)) {
+                    if (ConvertSidToStringSidW(pSid, ppszSid)) {
+                        hr = S_OK;
+                    }
+                }
+                CoTaskMemFree(pszDomain);
+            }
+            CoTaskMemFree(pSid);
+        } else {
+            hr = E_OUTOFMEMORY;
+        }
+    }
+
+    return hr;
 }
 
 // 辅助函数实现

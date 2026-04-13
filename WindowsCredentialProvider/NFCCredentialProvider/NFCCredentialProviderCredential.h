@@ -11,7 +11,7 @@
 // 前向声明
 class AccountManager;
 
-class NFCCredentialProviderCredential : public ICredentialProviderCredential {
+class NFCCredentialProviderCredential : public ICredentialProviderCredential, public ICredentialProviderCredential2 {
 public:
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void **ppv);
@@ -39,6 +39,9 @@ public:
                                    PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon);
     IFACEMETHODIMP ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, 
                                PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon);
+
+    // ICredentialProviderCredential2
+    IFACEMETHODIMP GetUserSid(PWSTR *ppszSid);
 
     // 初始化函数
     HRESULT Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR *rgcpfd, DWORD dwFlags);
