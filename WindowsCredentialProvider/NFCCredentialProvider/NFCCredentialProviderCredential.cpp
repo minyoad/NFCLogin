@@ -153,7 +153,7 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetFieldState(DWORD dwFieldID,
     HRESULT hr;
     
     if (dwFieldID < m_dwFieldCount && pcpfs && pcpfis) {
-        *pcpfs = CPFIS_NONE;
+        *pcpfs = CPFS_DISPLAY_IN_BOTH;
         *pcpfis = CPFIS_NONE;
         
         switch (dwFieldID) {
@@ -307,7 +307,20 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROV
             
             // 序列化凭据
             ULONG ulAuthPackage;
-            hr = LsaLookupAuthenticationPackage(L"Kerberos", &ulAuthPackage);
+            LSA_STRING lsaszAuthPackage;
+            lsaszAuthPackage.Buffer = "Kerberos";
+            lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
+            lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
+            
+            HANDLE hLsa;
+            NTSTATUS status = LsaConnectUntrusted(&hLsa);
+            if (status == 0) {
+                status = LsaLookupAuthenticationPackage(hLsa, &lsaszAuthPackage, &ulAuthPackage);
+                LsaDeregisterLogonProcess(hLsa);
+                hr = (status == 0) ? S_OK : E_FAIL;
+            } else {
+                hr = E_FAIL;
+            }
             
             if (SUCCEEDED(hr)) {
                 pcpcs->ulAuthenticationPackage = ulAuthPackage;

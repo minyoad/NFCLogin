@@ -4,6 +4,8 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 #include <winscard.h>
 
 // NFC卡类型枚举
@@ -63,6 +65,12 @@ public:
 
     // 测试PCSC功能
     bool TestPCSC();
+
+    // 连接到卡片
+    HRESULT ConnectToCard();
+
+    // 断开卡片连接
+    HRESULT DisconnectFromCard();
 
 private:
     // 初始化PCSC资源

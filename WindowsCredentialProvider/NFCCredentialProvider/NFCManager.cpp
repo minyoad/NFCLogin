@@ -111,8 +111,9 @@ std::string GetPCSCErrorString(LONG errorCode) {
     if (errorCode == SCARD_E_READER_UNAVAILABLE) return "读卡器不可用";
     if (errorCode == SCARD_E_SHARING_VIOLATION) return "共享冲突";
     if (errorCode == SCARD_E_TIMEOUT) return "操作超时";
-    if (errorCode == SCARD_E_UNPOWERED_CARD) return "卡片未供电";
-    if (errorCode == SCARD_E_UNSUPPORTED_CARD) return "不支持的卡片";
+    // 注意：某些Windows SDK版本可能不包含以下错误码
+    // if (errorCode == SCARD_E_UNPOWERED_CARD) return "卡片未供电";
+    // if (errorCode == SCARD_E_UNSUPPORTED_CARD) return "不支持的卡片";
     
     return "未知错误: " + std::to_string(errorCode);
 }
