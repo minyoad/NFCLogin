@@ -297,7 +297,7 @@ STDAPI DllRegisterServer() {
     HRESULT hr = S_OK;
     
     // 创建注册表项
-    HKEY hKey;
+    HKEY hKey = NULL;
     DWORD dwData;
     WCHAR szModule[MAX_PATH];
     
