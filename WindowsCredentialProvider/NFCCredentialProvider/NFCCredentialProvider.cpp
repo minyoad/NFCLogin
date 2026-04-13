@@ -4,6 +4,8 @@
 #include <shlwapi.h>
 #include <strsafe.h>
 #include <iostream>
+#include <stdarg.h>
+#include <combaseapi.h>
 
 #define SZ_CLSID_NFCCredentialProvider L"{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"
 
@@ -25,21 +27,32 @@ class CClassFactory : public IClassFactory {
 public:
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void **ppv) {
+        LogMessage("CClassFactory::QueryInterface asking for %s", GuidToString(riid));
         static const QITAB qit[] = {
             QITABENT(CClassFactory, IClassFactory),
             {0}
         };
-        return QISearch(this, qit, riid, ppv);
+        HRESULT hr = QISearch(this, qit, riid, ppv);
+        if (SUCCEEDED(hr)) {
+            LogMessage("CClassFactory::QueryInterface succeeded");
+        } else {
+            LogMessage("CClassFactory::QueryInterface failed with hr=0x%X", hr);
+        }
+        return hr;
     }
 
     IFACEMETHODIMP_(ULONG) AddRef() {
-        return InterlockedIncrement(&m_cRef);
+        ULONG cRef = InterlockedIncrement(&m_cRef);
+        LogMessage("CClassFactory::AddRef, m_cRef=%d", cRef);
+        return cRef;
     }
 
     IFACEMETHODIMP_(ULONG) Release() {
         ULONG cRef = InterlockedDecrement(&m_cRef);
+        LogMessage("CClassFactory::Release, m_cRef=%d", cRef);
         if (!cRef) {
             delete this;
+            LogMessage("CClassFactory destroyed");
         }
         return cRef;
     }
@@ -117,19 +130,29 @@ NFCCredentialProvider::~NFCCredentialProvider() {
 
 // IUnknown实现
 IFACEMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
+    LogMessage("NFCCredentialProvider::QueryInterface asking for %s", GuidToString(riid));
     static const QITAB qit[] = {
         QITABENT(NFCCredentialProvider, ICredentialProvider),
         {0}
     };
-    return QISearch(this, qit, riid, ppv);
+    HRESULT hr = QISearch(this, qit, riid, ppv);
+    if (SUCCEEDED(hr)) {
+        LogMessage("NFCCredentialProvider::QueryInterface succeeded");
+    } else {
+        LogMessage("NFCCredentialProvider::QueryInterface failed with hr=0x%X", hr);
+    }
+    return hr;
 }
 
 IFACEMETHODIMP_(ULONG) NFCCredentialProvider::AddRef() {
-    return InterlockedIncrement(&m_cRef);
+    ULONG cRef = InterlockedIncrement(&m_cRef);
+    LogMessage("NFCCredentialProvider::AddRef, m_cRef=%d", cRef);
+    return cRef;
 }
 
 IFACEMETHODIMP_(ULONG) NFCCredentialProvider::Release() {
     ULONG cRef = InterlockedDecrement(&m_cRef);
+    LogMessage("NFCCredentialProvider::Release, m_cRef=%d", cRef);
     if (cRef == 0) {
         delete this;
     }
@@ -145,10 +168,11 @@ IFACEMETHODIMP NFCCredentialProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE
 
 IFACEMETHODIMP NFCCredentialProvider::SetSerialization(const CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs) {
     LogMessage("SetSerialization called");
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::Advise(ICredentialProviderEvents *pcpe, UINT_PTR upAdviseContext) {
+    LogMessage("Advise called");
     if (m_pcpe) {
         m_pcpe->Release();
     }
@@ -159,22 +183,22 @@ IFACEMETHODIMP NFCCredentialProvider::Advise(ICredentialProviderEvents *pcpe, UI
     }
     
     m_upAdviseContext = upAdviseContext;
-    LogMessage("Advise called");
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
+    LogMessage("UnAdvise called");
     if (m_pcpe) {
         m_pcpe->Release();
         m_pcpe = nullptr;
     }
     
     m_upAdviseContext = 0;
-    LogMessage("UnAdvise called");
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
+    LogMessage("GetCredentialCount called");
     if (pdwCount) {
         *pdwCount = 1; // 提供一个凭据
     }
@@ -187,11 +211,11 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD 
         *pbAutoLogonWithDefault = FALSE; // 不自动登录
     }
     
-    LogMessage("GetCredentialCount called");
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
+    LogMessage("GetCredentialAt called with index %d", dwIndex);
     if (dwIndex != 0 || !ppcpc) {
         return E_INVALIDARG;
     }
@@ -204,11 +228,11 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredential
     HRESULT hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
     pCredential->Release();
     
-    LogMessage("GetCredentialAt called");
     return hr;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
+    LogMessage("GetFieldDescriptorCount called");
     if (pdwCount) {
         *pdwCount = 6; // 6个字段
     }
@@ -216,6 +240,7 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd) {
+    LogMessage("GetFieldDescriptorAt called with index %d", dwIndex);
     if (!ppcpfd || dwIndex >= 6) {
         return E_INVALIDARG;
     }
@@ -269,7 +294,6 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDEN
     (*ppcpfd)->guidFieldType = GUID_NULL;
     (*ppcpfd)->dwFieldID = dwIndex;
     
-    LogMessage("GetFieldDescriptorAt called");
     return S_OK;
 }
 
@@ -375,16 +399,33 @@ STDAPI DllRegisterServer() {
     return hr;
 }
 
-void LogMessage(const char* message) {
+const char* GuidToString(const GUID& guid) {
+    static WCHAR wszGuid[40] = { 0 };
+    static char szGuid[40] = { 0 };
+    if (StringFromGUID2(guid, wszGuid, ARRAYSIZE(wszGuid))) {
+        WideCharToMultiByte(CP_ACP, 0, wszGuid, -1, szGuid, sizeof(szGuid), NULL, NULL);
+        return szGuid;
+    }
+    return "Invalid GUID";
+}
+
+void LogMessage(const char* format, ...) {
     FILE* log_file = nullptr;
     if (fopen_s(&log_file, "C:\\temp\\nfc_provider.log", "a") == 0 && log_file) {
         SYSTEMTIME st;
         GetLocalTime(&st);
-        fprintf(log_file, "[%04d-%02d-%02d %02d:%02d:%02d.%03d] [v%s] %s\n",
+        fprintf(log_file, "[%04d-%02d-%02d %02d:%02d:%02d.%03d] [v%s] ",
             st.wYear, st.wMonth, st.wDay,
             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
-            PROVIDER_VERSION,
-            message);
+            PROVIDER_VERSION);
+
+        char buffer[1024];
+        va_list args;
+        va_start(args, format);
+        vsprintf_s(buffer, sizeof(buffer), format, args);
+        va_end(args);
+
+        fprintf(log_file, "%s\n", buffer);
         fclose(log_file);
     }
 }
