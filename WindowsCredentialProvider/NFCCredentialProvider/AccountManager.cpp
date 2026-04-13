@@ -1,9 +1,12 @@
 #include "AccountManager.h"
 #include <shlobj.h>
+#include <lm.h>
 #include <stdexcept>
 
+#pragma comment(lib, "netapi32.lib")
+
 // Helper to convert std::wstring to std::string
-std::string wstring_to_string(const std::wstring& wstr) {
+std::string WStringToString(const std::wstring& wstr) {
     if (wstr.empty()) return std::string();
     int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
     std::string strTo(size_needed, 0);
@@ -12,7 +15,7 @@ std::string wstring_to_string(const std::wstring& wstr) {
 }
 
 // Helper to convert std::string to std::wstring
-std::wstring string_to_wstring(const std::string& str) {
+std::wstring StringToWString(const std::string& str) {
     if (str.empty()) return std::wstring();
     int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
     std::wstring wstrTo(size_needed, 0);
@@ -20,119 +23,103 @@ std::wstring string_to_wstring(const std::string& str) {
     return wstrTo;
 }
 
+
 AccountManager::AccountManager() : m_db(nullptr) {
-    InitializeDatabase();
+    // Initialization is now handled by the public Initialize() method
 }
 
 AccountManager::~AccountManager() {
     if (m_db) {
         sqlite3_close(m_db);
+        m_db = nullptr;
     }
 }
 
-void AccountManager::InitializeDatabase() {
+HRESULT AccountManager::Initialize() {
+    return InitializeDatabase();
+}
+
+HRESULT AccountManager::InitializeDatabase() {
+    if (m_db) {
+        return S_OK; // Already initialized
+    }
+
     wchar_t appDataPath[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
-        m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\users.db";
-        
-        // The C# application is responsible for creating the directory and the database file.
-        // Here, we just try to open it.
-        int rc = sqlite3_open16(m_dbPath.c_str(), &m_db);
-        if (rc != SQLITE_OK) {
-            // Log the error, but don't throw, as the DB might not exist yet,
-            // which is not a critical failure for the provider itself.
-            // In a real-world scenario, you'd have more robust error logging.
-            sqlite3_close(m_db);
-            m_db = nullptr;
-        }
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
+        return E_FAIL;
     }
+
+    m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\users.db";
+    
+    int rc = sqlite3_open16(m_dbPath.c_str(), &m_db);
+    if (rc != SQLITE_OK) {
+        sqlite3_close(m_db);
+        m_db = nullptr;
+        return E_FAIL;
+    }
+
+    return S_OK;
 }
 
-std::wstring AccountManager::FindUserByNFCCardUID(const std::wstring& uid) {
+HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstring& username) {
     if (!m_db) {
-        return L"";
+        return E_FAIL;
     }
 
     sqlite3_stmt* stmt = nullptr;
-    std::wstring username = L"";
+    username = L"";
+    HRESULT hr = E_FAIL;
 
     const char* sql = "SELECT Username FROM Users WHERE NFCCardId = ? AND IsActive = 1";
     
     int rc = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr);
     if (rc == SQLITE_OK) {
-        std::string uid_utf8 = wstring_to_string(uid);
-        sqlite3_bind_text(stmt, 1, uid_utf8.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 1, uid.c_str(), -1, SQLITE_STATIC);
 
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char* result = sqlite3_column_text(stmt, 0);
             if (result) {
-                username = string_to_wstring(reinterpret_cast<const char*>(result));
+                username = StringToWString(reinterpret_cast<const char*>(result));
+                hr = S_OK;
             }
+        }
+        else {
+            hr = S_FALSE; // Not found
         }
     }
 
     sqlite3_finalize(stmt);
-    return username;
+    return hr;
 }
 
-// The C# application handles user validation and binding.
-// These methods are no longer needed here.
-bool AccountManager::ValidateUser(const std::wstring& username, const std::wstring& password) {
-    // This logic is now handled by the C# application and Windows itself.
-    return false; 
-}
-
-bool AccountManager::BindNFCCardToUser(const std::wstring& username, const std::wstring& uid) {
-    if (!ValidateNFCCardUID(nfcCardUID)) {
-        return E_INVALIDARG;
-    }
-    
-    // 检查NFC卡是否已被绑定
-    std::wstring existingUser;
-    HRESULT hr = FindUserByNFCCardUID(nfcCardUID, existingUser);
-    if (SUCCEEDED(hr) && !existingUser.empty() && existingUser != username) {
-        return HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS);
-    }
-    
-    // 保存绑定信息
-    std::wofstream file(m_dbPath, std::ios::app);
-    if (file.is_open()) {
-        file << L"UID:" << StringToWString(nfcCardUID).c_str() 
-             << L" USER:" << username.c_str() 
-             << L" TIMESTAMP:" << StringToWString(GetCurrentTimestamp()).c_str() 
-             << std::endl;
-        file.close();
+HRESULT AccountManager::ValidateLocalUserCredentials(const std::wstring& username, const std::wstring& password)
+{
+    HANDLE hToken;
+    if (LogonUserW(username.c_str(), L".", password.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken))
+    {
+        CloseHandle(hToken);
         return S_OK;
     }
-    
-    return E_FAIL;
+    return E_ACCESSDENIED;
 }
 
-HRESULT AccountManager::UnbindNFCCardFromUser(const std::wstring& username) {
-    // 读取所有绑定信息
-    std::vector<std::wstring> lines;
-    std::wifstream inFile(m_dbPath);
-    if (inFile.is_open()) {
-        std::wstring line;
-        while (std::getline(inFile, line)) {
-            if (line.find(L"USER:" + username) == std::wstring::npos) {
-                lines.push_back(line);
-            }
-        }
-        inFile.close();
-    }
-    
-    // 写回文件（排除指定用户的绑定）
-    std::wofstream outFile(m_dbPath);
-    if (outFile.is_open()) {
-        for (const auto& line : lines) {
-            outFile << line << std::endl;
-        }
-        outFile.close();
-        return S_OK;
-    }
-    
-    return E_FAIL;
+HRESULT AccountManager::CreateLocalUser(const std::wstring& username, const std::wstring& password, const std::wstring& fullName, const std::string& nfcCardUID)
+{
+    // This functionality is primarily handled by the C# application.
+    // This is a placeholder and would require significant implementation for a real-world scenario.
+    return E_NOTIMPL;
+}
+
+HRESULT AccountManager::BindNFCCardToUser(const std::wstring& username, const std::string& nfcCardUID)
+{
+    // This functionality is primarily handled by the C# application.
+    return E_NOTIMPL;
+}
+
+HRESULT AccountManager::UnbindNFCCardFromUser(const std::wstring& username)
+{
+    // This functionality is primarily handled by the C# application.
+    return E_NOTIMPL;
 }
 
 HRESULT AccountManager::UserExists(const std::wstring& username, bool& exists) {
@@ -154,25 +141,17 @@ HRESULT AccountManager::UserExists(const std::wstring& username, bool& exists) {
 }
 
 HRESULT AccountManager::GetUserInfo(const std::wstring& username, std::wstring& fullName, bool& isActive) {
-    USER_INFO_1011* pUserInfo = nullptr;
-    NET_API_STATUS status = NetUserGetInfo(nullptr, username.c_str(), 1011, (LPBYTE*)&pUserInfo);
+    USER_INFO_2* pUserInfo = nullptr;
+    NET_API_STATUS status = NetUserGetInfo(nullptr, username.c_str(), 2, (LPBYTE*)&pUserInfo);
     
     if (status == NERR_Success) {
-        if (pUserInfo->usri1011_full_name) {
-            fullName = pUserInfo->usri1011_full_name;
+        if (pUserInfo->usri2_full_name) {
+            fullName = pUserInfo->usri2_full_name;
         } else {
             fullName = username;
         }
         
-        // 获取用户状态
-        USER_INFO_2* pUserInfo2 = nullptr;
-        status = NetUserGetInfo(nullptr, username.c_str(), 2, (LPBYTE*)&pUserInfo2);
-        if (status == NERR_Success) {
-            isActive = !(pUserInfo2->usri2_flags & UF_ACCOUNTDISABLE);
-            NetApiBufferFree(pUserInfo2);
-        } else {
-            isActive = true;
-        }
+        isActive = !(pUserInfo->usri2_flags & UF_ACCOUNTDISABLE);
         
         NetApiBufferFree(pUserInfo);
         return S_OK;
@@ -182,60 +161,68 @@ HRESULT AccountManager::GetUserInfo(const std::wstring& username, std::wstring& 
 }
 
 HRESULT AccountManager::SetUserActive(const std::wstring& username, bool active) {
-    USER_INFO_1008 ui1008 = {0};
-    ui1008.usri1008_flags = active ? UF_NORMAL_ACCOUNT : UF_ACCOUNTDISABLE;
-    
+    USER_INFO_1008 ui1008;
     DWORD dwError = 0;
-    NET_API_STATUS status = NetUserSetInfo(nullptr, username.c_str(), 1008, (LPBYTE)&ui1008, &dwError);
+    
+    // First, get the current flags
+    USER_INFO_2* pUserInfo2 = nullptr;
+    NET_API_STATUS status = NetUserGetInfo(nullptr, username.c_str(), 2, (LPBYTE*)&pUserInfo2);
+    if (status != NERR_Success) {
+        return HRESULT_FROM_WIN32(status);
+    }
+
+    if (active) {
+        pUserInfo2->usri2_flags &= ~UF_ACCOUNTDISABLE;
+    } else {
+        pUserInfo2->usri2_flags |= UF_ACCOUNTDISABLE;
+    }
+    
+    status = NetUserSetInfo(nullptr, username.c_str(), 2, (LPBYTE)pUserInfo2, &dwError);
+    NetApiBufferFree(pUserInfo2);
     
     return (status == NERR_Success) ? S_OK : HRESULT_FROM_WIN32(status);
 }
 
 HRESULT AccountManager::GetAllBoundNFCCards(std::map<std::string, std::wstring>& cardMappings) {
     cardMappings.clear();
-    
-    std::wifstream file(m_dbPath);
-    if (file.is_open()) {
-        std::wstring line;
-        while (std::getline(file, line)) {
-            if (line.find(L"UID:") == 0) {
-                size_t uidStart = line.find(L":") + 1;
-                size_t uidEnd = line.find(L" ", uidStart);
-                std::wstring storedUID = line.substr(uidStart, uidEnd - uidStart);
-                
-                size_t userStart = line.find(L"USER:") + 5;
-                size_t userEnd = line.find(L" ", userStart);
-                std::wstring username = line.substr(userStart, userEnd - userStart);
-                
-                cardMappings[WStringToString(storedUID)] = username;
+    if (!m_db) {
+        return E_FAIL;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT NFCCardId, Username FROM Users WHERE NFCCardId IS NOT NULL AND NFCCardId != ''";
+
+    int rc = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr);
+    if (rc == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* cardId_c = sqlite3_column_text(stmt, 0);
+            const unsigned char* username_c = sqlite3_column_text(stmt, 1);
+
+            if (cardId_c && username_c) {
+                std::string cardId = reinterpret_cast<const char*>(cardId_c);
+                std::wstring username = StringToWString(reinterpret_cast<const char*>(username_c));
+                cardMappings[cardId] = username;
             }
         }
-        file.close();
-        return S_OK;
     }
     
-    return E_FAIL;
+    sqlite3_finalize(stmt);
+    return S_OK;
 }
 
-// 辅助函数实现
-std::wstring StringToWString(const std::string& str) {
-    if (str.empty()) return std::wstring();
-    
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), nullptr, 0);
-    std::wstring wstrTo(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
-    return wstrTo;
+HRESULT AccountManager::LoadAccountMappings()
+{
+    // This is now handled by direct DB queries.
+    return S_OK;
 }
 
-std::string WStringToString(const std::wstring& wstr) {
-    if (wstr.empty()) return std::string();
-    
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), nullptr, 0, nullptr, nullptr);
-    std::string strTo(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, nullptr, nullptr);
-    return strTo;
+HRESULT AccountManager::SaveAccountMappings()
+{
+    // This is now handled by direct DB queries.
+    return S_OK;
 }
 
+// Auxiliary function implementations from the header
 std::wstring GetLocalAppDataPath() {
     wchar_t path[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, path))) {
@@ -245,50 +232,39 @@ std::wstring GetLocalAppDataPath() {
 }
 
 std::wstring GetUserFullName(const std::wstring& username) {
-    USER_INFO_1011* pUserInfo = nullptr;
-    NET_API_STATUS status = NetUserGetInfo(nullptr, username.c_str(), 1011, (LPBYTE*)&pUserInfo);
-    
-    std::wstring fullName = username;
-    if (status == NERR_Success) {
-        if (pUserInfo->usri1011_full_name) {
-            fullName = pUserInfo->usri1011_full_name;
-        }
-        NetApiBufferFree(pUserInfo);
+    std::wstring fullName;
+    bool isActive;
+    AccountManager am;
+    if (SUCCEEDED(am.Initialize()) && SUCCEEDED(am.GetUserInfo(username, fullName, isActive))) {
+        return fullName;
     }
-    
-    return fullName;
+    return username;
 }
 
 bool ValidateUsername(const std::wstring& username) {
     if (username.empty() || username.length() > 20) {
         return false;
     }
-    
-    // 检查是否包含非法字符
     for (wchar_t c : username) {
-        if (!iswalnum(c) && c != L'_' && c != L'-') {
+        if (!iswalnum(c) && c != L'_' && c != L'-' && c != L'.' && c != L' ') {
             return false;
         }
     }
-    
     return true;
 }
 
 bool ValidatePassword(const std::wstring& password) {
-    return !password.empty() && password.length() >= 6;
+    return !password.empty();
 }
 
 bool ValidateNFCCardUID(const std::string& uid) {
-    if (uid.empty() || uid.length() != 8) {
+    if (uid.empty()) {
         return false;
     }
-    
-    // 检查是否为有效的十六进制UID
     for (char c : uid) {
         if (!isxdigit(c)) {
             return false;
         }
     }
-    
     return true;
 }
