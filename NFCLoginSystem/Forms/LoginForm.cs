@@ -74,16 +74,16 @@ namespace NFCLoginSystem.Forms
                 if (result.Success)
                 {
                     this.Hide();
-                    if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
+                    if (_authService.IsCurrentUserAdmin())
                     {
                         var userManagementForm = new UserManagementForm(_authService);
-                        userManagementForm.FormClosed += (s, args) => this.Show();
+                        userManagementForm.FormClosed += (s, args) => this.Close();
                         userManagementForm.Show();
                     }
                     else
                     {
                         var mainForm = new MainForm(_authService);
-                        mainForm.FormClosed += (s, args) => this.Show();
+                        mainForm.FormClosed += (s, args) => this.Close();
                         mainForm.Show();
                     }
                 }
@@ -140,16 +140,16 @@ namespace NFCLoginSystem.Forms
                 if (result.Success)
                 {
                     this.Hide();
-                    if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
+                    if (_authService.IsCurrentUserAdmin())
                     {
                         var userManagementForm = new UserManagementForm(_authService);
-                        userManagementForm.FormClosed += (s, args) => this.Show();
+                        userManagementForm.FormClosed += (s, args) => this.Close();
                         userManagementForm.Show();
                     }
                     else
                     {
                         var mainForm = new MainForm(_authService);
-                        mainForm.FormClosed += (s, args) => this.Show();
+                        mainForm.FormClosed += (s, args) => this.Close();
                         mainForm.Show();
                     }
                 }

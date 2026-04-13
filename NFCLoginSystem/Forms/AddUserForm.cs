@@ -1,6 +1,8 @@
 using NFCLoginSystem.Services;
 using System;
 using System.Windows.Forms;
+using System.DirectoryServices.AccountManagement;
+using System.Drawing;
 
 namespace NFCLoginSystem.Forms
 {
@@ -23,7 +25,6 @@ namespace NFCLoginSystem.Forms
                 string confirmPassword = txtConfirmPassword.Text;
                 string displayName = txtDisplayName.Text.Trim();
                 string nfcCardId = txtNFCCardId.Text.Trim();
-                bool isAdmin = chkIsAdmin.Checked;
 
                 // 验证输入
                 if (string.IsNullOrEmpty(username))
@@ -68,44 +69,53 @@ namespace NFCLoginSystem.Forms
                     return;
                 }
 
-                // 检查用户名是否已存在
-                var existingUser = _databaseService.GetUserByUsername(username);
-                if (existingUser != null)
+                using (var context = new PrincipalContext(ContextType.Machine))
                 {
-                    MessageBox.Show("用户名已存在，请选择其他用户名", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    txtUsername.Focus();
-                    return;
-                }
-
-                // 检查NFC卡ID是否已绑定
-                if (!string.IsNullOrEmpty(nfcCardId))
-                {
-                    var existingNFCUser = _databaseService.GetUserByNFCCardId(nfcCardId);
-                    if (existingNFCUser != null)
+                    // 检查用户名是否已存在
+                    var existingUser = UserPrincipal.FindByIdentity(context, IdentityType.SamAccountName, username);
+                    if (existingUser != null)
                     {
-                        MessageBox.Show("该NFC卡已绑定到其他用户", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        txtNFCCardId.Focus();
+                        MessageBox.Show("该Windows系统用户名已存在，请选择其他用户名", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        txtUsername.Focus();
                         return;
                     }
-                }
 
-                // 创建用户
-                string passwordHash = AuthenticationService.HashPassword(password);
-                _databaseService.CreateUser(username, passwordHash, displayName, isAdmin);
-
-                // 如果提供了NFC卡ID，更新用户信息
-                if (!string.IsNullOrEmpty(nfcCardId))
-                {
-                    var newUser = _databaseService.GetUserByUsername(username);
-                    if (newUser != null)
+                    // 检查NFC卡ID是否已绑定
+                    if (!string.IsNullOrEmpty(nfcCardId))
                     {
-                        _databaseService.UpdateUserNFCCard(newUser.Id, nfcCardId);
+                        var existingNFCUser = _databaseService.GetUserByNFCCardId(nfcCardId);
+                        if (existingNFCUser != null)
+                        {
+                            MessageBox.Show($"该NFC卡已绑定到用户 '{existingNFCUser.Username}'", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            txtNFCCardId.Focus();
+                            return;
+                        }
+                    }
+
+                    // 创建用户
+                    using (var user = new UserPrincipal(context))
+                    {
+                        user.SamAccountName = username;
+                        user.SetPassword(password);
+                        user.DisplayName = displayName;
+                        user.Enabled = true;
+                        user.Save();
+                    }
+
+                    // 如果提供了NFC卡ID，更新数据库中的绑定信息
+                    if (!string.IsNullOrEmpty(nfcCardId))
+                    {
+                        _databaseService.UpdateUserNFCCard(username, nfcCardId);
                     }
                 }
 
-                MessageBox.Show("用户创建成功！", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Windows系统用户创建成功！", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 DialogResult = DialogResult.OK;
                 Close();
+            }
+            catch (PrincipalException pex)
+            {
+                MessageBox.Show($"创建Windows用户时发生错误: {pex.Message}\n\n这通常与密码策略有关，例如密码过于简单。", "创建用户失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch (Exception ex)
             {

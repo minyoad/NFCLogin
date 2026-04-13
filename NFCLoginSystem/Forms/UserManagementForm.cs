@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using System.DirectoryServices.AccountManagement;
 
 namespace NFCLoginSystem.Forms
 {
@@ -11,7 +12,8 @@ namespace NFCLoginSystem.Forms
     {
         private readonly DatabaseService _databaseService;
         private readonly AuthenticationService _authService;
-        private List<User> _users = new();
+        private List<UserPrincipal> _users = new();
+        private List<object> _displayUsers = new();
 
         public UserManagementForm(AuthenticationService authService)
         {
@@ -20,6 +22,8 @@ namespace NFCLoginSystem.Forms
             _databaseService = new DatabaseService();
             _authService = authService;
             
+            btnEditUser.Enabled = false; // 暂时禁用编辑功能
+
             LoadUsers();
             SetupDataGridView();
         }
@@ -38,7 +42,7 @@ namespace NFCLoginSystem.Forms
             {
                 Name = "Username",
                 HeaderText = "用户名",
-                DataPropertyName = "Username",
+                DataPropertyName = "SamAccountName",
                 Width = 120
             });
 
@@ -54,7 +58,7 @@ namespace NFCLoginSystem.Forms
             {
                 Name = "NFCCardId",
                 HeaderText = "NFC卡ID",
-                DataPropertyName = "NFCCardId",
+                DataPropertyName = "NFCCardId", // This will be custom loaded
                 Width = 120
             });
 
@@ -62,32 +66,15 @@ namespace NFCLoginSystem.Forms
             {
                 Name = "IsActive",
                 HeaderText = "激活状态",
-                DataPropertyName = "IsActive",
+                DataPropertyName = "Enabled",
                 Width = 80
-            });
-
-            dataGridViewUsers.Columns.Add(new DataGridViewCheckBoxColumn
-            {
-                Name = "IsAdmin",
-                HeaderText = "管理员",
-                DataPropertyName = "IsAdmin",
-                Width = 80
-            });
-
-            dataGridViewUsers.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "CreatedAt",
-                HeaderText = "创建时间",
-                DataPropertyName = "CreatedAt",
-                Width = 150,
-                DefaultCellStyle = { Format = "yyyy-MM-dd HH:mm:ss" }
             });
 
             dataGridViewUsers.Columns.Add(new DataGridViewTextBoxColumn
             {
                 Name = "LastLogin",
                 HeaderText = "最后登录",
-                DataPropertyName = "LastLogin",
+                DataPropertyName = "LastLogon",
                 Width = 150,
                 DefaultCellStyle = { Format = "yyyy-MM-dd HH:mm:ss" }
             });
@@ -97,17 +84,40 @@ namespace NFCLoginSystem.Forms
         {
             try
             {
-                _users = _databaseService.GetAllUsers();
+                using (var context = new PrincipalContext(ContextType.Machine))
+                {
+                    var userPrincipal = new UserPrincipal(context);
+                    using (var searcher = new PrincipalSearcher(userPrincipal))
+                    {
+                        _users = searcher.FindAll().Cast<UserPrincipal>().ToList();
+                    }
+                }
+
+                // Now, we need a way to display this data along with NFC card IDs.
+                // For now, let's just display the windows users.
+                // We will create a custom view model later.
+                var displayUsers = _users.Select(u => new 
+                {
+                    u.SamAccountName,
+                    u.DisplayName,
+                    u.Enabled,
+                    u.LastLogon,
+                    NFCCardId = _databaseService.GetUserByUsername(u.SamAccountName)?.NFCCardId ?? ""
+                }).Cast<object>().ToList();
+
+                _displayUsers = displayUsers;
+
                 dataGridViewUsers.DataSource = null;
-                dataGridViewUsers.DataSource = _users;
+                dataGridViewUsers.DataSource = _displayUsers;
                 lblTotalUsers.Text = $"总用户数: {_users.Count}";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"加载用户列表失败: {ex.Message}", "错误", 
+                MessageBox.Show($"加载系统用户列表失败: {ex.Message}\n\n请确保程序以管理员权限运行。", "错误", 
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
 
         private void btnAddUser_Click(object sender, EventArgs e)
         {
@@ -120,22 +130,8 @@ namespace NFCLoginSystem.Forms
 
         private void btnEditUser_Click(object sender, EventArgs e)
         {
-            if (dataGridViewUsers.SelectedRows.Count == 0)
-            {
-                MessageBox.Show("请选择要编辑的用户", "提示", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            var selectedUser = dataGridViewUsers.SelectedRows[0].DataBoundItem as User;
-            if (selectedUser != null)
-            {
-                var editUserForm = new EditUserForm(selectedUser);
-                if (editUserForm.ShowDialog() == DialogResult.OK)
-                {
-                    LoadUsers();
-                }
-            }
+            MessageBox.Show("编辑系统用户功能正在开发中。", "提示", 
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void btnDeleteUser_Click(object sender, EventArgs e)
@@ -147,37 +143,53 @@ namespace NFCLoginSystem.Forms
                 return;
             }
 
-            var selectedUser = dataGridViewUsers.SelectedRows[0].DataBoundItem as User;
-            if (selectedUser != null)
+            var selectedRow = dataGridViewUsers.SelectedRows[0];
+            var username = selectedRow.Cells["Username"].Value as string;
+
+            if (string.IsNullOrEmpty(username))
             {
-                if (selectedUser.Username == _authService.CurrentUser?.Username)
+                MessageBox.Show("无法获取所选用户的用户名。", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (username.Equals(_authService.CurrentUser?.SamAccountName, StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show("不能删除当前登录的用户", "提示", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var result = MessageBox.Show(
+                $"确定要删除Windows系统用户 '{username}' 吗？\n\n此操作将永久删除该系统账户及其所有相关数据，且不可撤销。", 
+                "确认删除", 
+                MessageBoxButtons.YesNo, 
+                MessageBoxIcon.Question);
+
+            if (result == DialogResult.Yes)
+            {
+                try
                 {
-                    MessageBox.Show("不能删除当前登录的用户", "提示", 
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    using (var context = new PrincipalContext(ContextType.Machine))
+                    {
+                        var user = UserPrincipal.FindByIdentity(context, IdentityType.SamAccountName, username);
+                        if (user != null)
+                        {
+                            user.Delete();
+                        }
+                    }
+
+                    // 删除数据库中的NFC绑定关系
+                    _databaseService.DeleteUserMapping(username);
+
+                    MessageBox.Show("用户删除成功", "成功", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    LoadUsers();
                 }
-
-                var result = MessageBox.Show(
-                    $"确定要删除用户 '{selectedUser.Username}' 吗？\n\n此操作不可撤销。", 
-                    "确认删除", 
-                    MessageBoxButtons.YesNo, 
-                    MessageBoxIcon.Question);
-
-                if (result == DialogResult.Yes)
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        // 删除用户及其相关数据
-                        _databaseService.DeleteUser(selectedUser.Id);
-                        MessageBox.Show("用户删除成功", "成功", 
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        LoadUsers();
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"删除用户失败: {ex.Message}", "错误", 
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    MessageBox.Show($"删除用户失败: {ex.Message}", "错误", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
@@ -193,14 +205,22 @@ namespace NFCLoginSystem.Forms
             
             if (string.IsNullOrEmpty(searchText))
             {
-                dataGridViewUsers.DataSource = _users;
+                dataGridViewUsers.DataSource = null;
+                dataGridViewUsers.DataSource = _displayUsers;
             }
             else
             {
-                var filteredUsers = _users.FindAll(user => 
-                    user.Username.ToLower().Contains(searchText) ||
-                    user.DisplayName.ToLower().Contains(searchText) ||
-                    (user.NFCCardId?.ToLower().Contains(searchText) ?? false));
+                var filteredUsers = _displayUsers.FindAll(u =>
+                {
+                    dynamic user = u;
+                    string username = user.SamAccountName.ToLower();
+                    string displayName = user.DisplayName?.ToLower() ?? "";
+                    string nfcCardId = user.NFCCardId?.ToLower() ?? "";
+
+                    return username.Contains(searchText) ||
+                           displayName.Contains(searchText) ||
+                           nfcCardId.Contains(searchText);
+                });
                 
                 dataGridViewUsers.DataSource = null;
                 dataGridViewUsers.DataSource = filteredUsers;
@@ -209,9 +229,9 @@ namespace NFCLoginSystem.Forms
 
         private void dataGridViewUsers_SelectionChanged(object sender, EventArgs e)
         {
-            btnEditUser.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
-            btnDeleteUser.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
-            btnBindNFC.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
+            bool hasSelection = dataGridViewUsers.SelectedRows.Count > 0;
+            btnDeleteUser.Enabled = hasSelection;
+            btnBindNFC.Enabled = hasSelection;
         }
 
         private void btnBindNFC_Click(object sender, EventArgs e)
@@ -223,10 +243,13 @@ namespace NFCLoginSystem.Forms
                 return;
             }
 
-            var selectedUser = dataGridViewUsers.SelectedRows[0].DataBoundItem as User;
-            if (selectedUser == null)
+            var selectedRow = dataGridViewUsers.SelectedRows[0];
+            // Since the DataBoundItem is an anonymous type, we need to get the username differently.
+            var username = selectedRow.Cells["Username"].Value as string;
+
+            if (string.IsNullOrEmpty(username))
             {
-                MessageBox.Show("无法获取所选用户的信息。", "错误",
+                MessageBox.Show("无法获取所选用户的用户名。", "错误",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -246,15 +269,14 @@ namespace NFCLoginSystem.Forms
                 {
                     // 检查该NFC卡是否已被其他用户绑定
                     var existingUser = _databaseService.GetUserByNFCCardId(cardId);
-                    if (existingUser != null && existingUser.Id != selectedUser.Id)
+                    if (existingUser != null && existingUser.Username != username)
                     {
                         MessageBox.Show($"此NFC卡已被用户 '{existingUser.Username}' 绑定。", "绑定失败",
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
 
-                    selectedUser.NFCCardId = cardId;
-                    _databaseService.UpdateUser(selectedUser);
+                    _databaseService.UpdateUserNFCCard(username, cardId);
                     MessageBox.Show("NFC卡绑定成功！", "成功",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     LoadUsers();

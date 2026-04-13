@@ -1,71 +1,64 @@
 using NFCLoginSystem.Models;
-using NFCLoginSystem.Services;
 using System;
-using System.Security.Cryptography;
-using System.Text;
+using System.DirectoryServices.AccountManagement;
 
 namespace NFCLoginSystem.Services
 {
     public class AuthenticationService
     {
         private readonly DatabaseService _databaseService;
-        private User? _currentUser;
+        private UserPrincipal? _currentUser;
 
         public AuthenticationService(DatabaseService databaseService)
         {
             _databaseService = databaseService;
         }
 
-        public User? CurrentUser => _currentUser;
+        public UserPrincipal? CurrentUser => _currentUser;
         public bool IsAuthenticated => _currentUser != null;
 
         public AuthenticationResult Login(string username, string password)
         {
-            var user = _databaseService.GetUserByUsername(username);
-            
-            if (user == null)
+            using (var context = new PrincipalContext(ContextType.Machine))
             {
-                return new AuthenticationResult { Success = false, Message = "用户名或密码错误" };
-            }
-
-            if (!user.IsActive)
-            {
-                return new AuthenticationResult { Success = false, Message = "用户账户已被禁用" };
-            }
-
-            if (user.IsLockedOut)
-            {
-                return new AuthenticationResult { Success = false, Message = $"账户已被锁定，请稍后再试" };
-            }
-
-            var passwordHash = HashPassword(password);
-            if (user.PasswordHash != passwordHash)
-            {
-                // 增加失败登录次数
-                var failedAttempts = user.FailedLoginAttempts + 1;
-                DateTime? lockoutEnd = null;
-
-                if (failedAttempts >= 5)
+                try
                 {
-                    lockoutEnd = DateTime.Now.AddMinutes(15);
+                    // 1. 验证凭据
+                    bool isValid = context.ValidateCredentials(username, password);
+                    if (!isValid)
+                    {
+                        return new AuthenticationResult { Success = false, Message = "用户名或密码错误" };
+                    }
+
+                    // 2. 获取用户信息
+                    var user = UserPrincipal.FindByIdentity(context, IdentityType.SamAccountName, username);
+                    if (user == null)
+                    {
+                        // 这通常不应该发生，因为ValidateCredentials已经成功
+                        return new AuthenticationResult { Success = false, Message = "无法找到用户信息" };
+                    }
+
+                    // 3. 检查账户是否被禁用
+                    if (user.Enabled == false)
+                    {
+                        return new AuthenticationResult { Success = false, Message = "用户账户已被禁用" };
+                    }
+
+                    // 4. 检查账户是否被锁定
+                    if (user.IsAccountLockedOut())
+                    {
+                        return new AuthenticationResult { Success = false, Message = "账户已被锁定，请联系管理员" };
+                    }
+
+                    _currentUser = user;
+                    return new AuthenticationResult { Success = true, Message = "登录成功", User = user };
                 }
-
-                _databaseService.UpdateFailedLoginAttempts(user.Id, failedAttempts, lockoutEnd);
-                
-                return new AuthenticationResult { Success = false, Message = "用户名或密码错误" };
+                catch (Exception ex)
+                {
+                    // 记录日志会更好
+                    return new AuthenticationResult { Success = false, Message = $"验证过程中发生错误: {ex.Message}" };
+                }
             }
-
-            // 登录成功，重置失败次数
-            _databaseService.UpdateFailedLoginAttempts(user.Id, 0, null);
-            _databaseService.UpdateLastLogin(user.Id);
-
-            // 创建登录会话
-            var sessionId = Guid.NewGuid().ToString();
-            _databaseService.CreateLoginSession(user.Id, sessionId, "Password");
-
-            _currentUser = user;
-
-            return new AuthenticationResult { Success = true, Message = "登录成功", User = user };
         }
 
         public AuthenticationResult LoginWithNFC(string nfcCardId)
@@ -75,33 +68,43 @@ namespace NFCLoginSystem.Services
                 return new AuthenticationResult { Success = false, Message = "NFC卡ID无效" };
             }
 
-            var user = _databaseService.GetUserByNFCCardId(nfcCardId);
-            
-            if (user == null)
+            // 1. 从数据库查找绑定的用户
+            var dbUser = _databaseService.GetUserByNFCCardId(nfcCardId);
+            if (dbUser == null || string.IsNullOrEmpty(dbUser.Username))
             {
                 return new AuthenticationResult { Success = false, Message = "未找到绑定的NFC卡" };
             }
 
-            if (!user.IsActive)
+            using (var context = new PrincipalContext(ContextType.Machine))
             {
-                return new AuthenticationResult { Success = false, Message = "用户账户已被禁用" };
+                try
+                {
+                    // 2. 获取系统用户信息
+                    var user = UserPrincipal.FindByIdentity(context, IdentityType.SamAccountName, dbUser.Username);
+                    if (user == null)
+                    {
+                        return new AuthenticationResult { Success = false, Message = $"NFC卡绑定的系统用户 '{dbUser.Username}' 不存在" };
+                    }
+
+                    // 3. 检查账户状态
+                    if (user.Enabled == false)
+                    {
+                        return new AuthenticationResult { Success = false, Message = "用户账户已被禁用" };
+                    }
+
+                    if (user.IsAccountLockedOut())
+                    {
+                        return new AuthenticationResult { Success = false, Message = "账户已被锁定，请联系管理员" };
+                    }
+
+                    _currentUser = user;
+                    return new AuthenticationResult { Success = true, Message = "NFC登录成功", User = user };
+                }
+                catch (Exception ex)
+                {
+                    return new AuthenticationResult { Success = false, Message = $"验证过程中发生错误: {ex.Message}" };
+                }
             }
-
-            if (user.IsLockedOut)
-            {
-                return new AuthenticationResult { Success = false, Message = "账户已被锁定，请稍后再试" };
-            }
-
-            // 更新最后登录时间
-            _databaseService.UpdateLastLogin(user.Id);
-
-            // 创建登录会话
-            var sessionId = Guid.NewGuid().ToString();
-            _databaseService.CreateLoginSession(user.Id, sessionId, "NFC", nfcCardId);
-
-            _currentUser = user;
-
-            return new AuthenticationResult { Success = true, Message = "NFC登录成功", User = user };
         }
 
         public void Logout()
@@ -109,37 +112,15 @@ namespace NFCLoginSystem.Services
             _currentUser = null;
         }
 
-        public bool ChangePassword(string currentPassword, string newPassword)
+        public bool IsCurrentUserAdmin()
         {
-            if (_currentUser == null)
-                return false;
-
-            var currentHash = HashPassword(currentPassword);
-            if (_currentUser.PasswordHash != currentHash)
-                return false;
-
-            var newHash = HashPassword(newPassword);
-            // 这里应该实现更新密码的逻辑
-            return true;
-        }
-
-        public static string HashPassword(string password)
-        {
-            using var sha256 = SHA256.Create();
-            var bytes = Encoding.UTF8.GetBytes(password);
-            var hash = sha256.ComputeHash(bytes);
-            return Convert.ToBase64String(hash);
-        }
-
-        public bool ValidatePassword(string password)
-        {
-            if (string.IsNullOrEmpty(password))
-                return false;
-
-            if (password.Length < 6)
-                return false;
-
-            return true;
+            // 最终方案：直接检查当前运行进程的令牌是否属于管理员组
+            // 因为程序已配置为 requireAdministrator，所以这个检查应该能反映登录用户的真实权限
+            using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+            {
+                var principal = new System.Security.Principal.WindowsPrincipal(identity);
+                return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
         }
     }
 
@@ -147,6 +128,6 @@ namespace NFCLoginSystem.Services
     {
         public bool Success { get; set; }
         public string Message { get; set; } = string.Empty;
-        public User? User { get; set; }
+        public UserPrincipal? User { get; set; }
     }
 }

@@ -19,7 +19,7 @@ namespace NFCLoginSystem.Forms
             this.Text = $"欢迎, {_authService.CurrentUser?.DisplayName}";
 
             // 根据用户是否为管理员显示不同内容
-            if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
+            if (_authService.IsCurrentUserAdmin())
             {
                 // 创建用户管理按钮
                 var btnUserManagement = new Button
