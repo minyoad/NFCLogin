@@ -5,6 +5,8 @@
 #include <strsafe.h>
 #include <iostream>
 
+#define SZ_CLSID_NFCCredentialProvider L"{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"
+
 // {7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}
 const GUID CLSID_NFCCredentialProvider =
 { 0x7a8a8f2e, 0x4c3d, 0x4f1b, { 0x9e, 0x2a, 0x3c, 0x4d, 0x5f, 0x6a, 0x7b, 0x8c } };
@@ -302,7 +304,7 @@ STDAPI DllRegisterServer() {
     WCHAR szModule[MAX_PATH];
     
     if (SUCCEEDED(hr)) {
-        hr = StringCchPrintfW(szModule, ARRAYSIZE(szModule), L"%s\\%s", L"Software\\Classes\\CLSID", 
+        hr = StringCchPrintfW(szModule, ARRAYSIZE(szModule), L"Software\\Classes\\CLSID\\%s", 
                               SZ_CLSID_NFCCredentialProvider);
     }
     
@@ -320,7 +322,7 @@ STDAPI DllRegisterServer() {
     // 注册为凭证提供程序
     if (SUCCEEDED(hr)) {
         hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
-                                             L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}", 
+                                             L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\" SZ_CLSID_NFCCredentialProvider, 
                                              0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
     }
     
@@ -333,7 +335,7 @@ STDAPI DllRegisterServer() {
     // 注册DLL路径
     if (SUCCEEDED(hr)) {
         hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
-                                             L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}\\InprocServer32", 
+                                             L"Software\\Classes\\CLSID\\" SZ_CLSID_NFCCredentialProvider L"\\InprocServer32", 
                                              0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
     }
     
@@ -347,7 +349,7 @@ STDAPI DllRegisterServer() {
     // 设置线程模型
     if (SUCCEEDED(hr)) {
         hr = HRESULT_FROM_WIN32(RegCreateKeyExW(HKEY_LOCAL_MACHINE, 
-                                             L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}\\InprocServer32", 
+                                             L"Software\\Classes\\CLSID\\" SZ_CLSID_NFCCredentialProvider L"\\InprocServer32", 
                                              0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, &dwData));
     }
     
@@ -366,10 +368,10 @@ STDAPI DllUnregisterServer() {
     
     // 删除注册表项
     hr = HRESULT_FROM_WIN32(RegDeleteTreeW(HKEY_LOCAL_MACHINE, 
-                                         L"Software\\Classes\\CLSID\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"));
+                                         L"Software\\Classes\\CLSID\\" SZ_CLSID_NFCCredentialProvider));
     
     hr = HRESULT_FROM_WIN32(RegDeleteTreeW(HKEY_LOCAL_MACHINE, 
-                                         L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"));
+                                         L"Software\\Microsoft\\Windows\\CurrentVersion\\Authentication\\Credential Providers\\" SZ_CLSID_NFCCredentialProvider));
     
     LogMessage("Credential Provider unregistered");
     return hr;
