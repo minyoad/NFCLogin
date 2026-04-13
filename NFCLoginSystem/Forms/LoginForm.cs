@@ -20,6 +20,9 @@ namespace NFCLoginSystem.Forms
             _authService = new AuthenticationService(_databaseService);
             _nfcService = new NFCSerialService();
             
+            // 设置默认图像以避免空引用异常
+            pictureBoxLogo.Image = SystemIcons.Information.ToBitmap();
+            
             SetupNFCService();
             LoadAvailablePorts();
         }

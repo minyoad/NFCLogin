@@ -308,7 +308,8 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROV
             // 序列化凭据
             ULONG ulAuthPackage;
             LSA_STRING lsaszAuthPackage;
-            lsaszAuthPackage.Buffer = "Kerberos";
+            char authPackageName[] = "Kerberos";
+            lsaszAuthPackage.Buffer = authPackageName;
             lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
             lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
             
