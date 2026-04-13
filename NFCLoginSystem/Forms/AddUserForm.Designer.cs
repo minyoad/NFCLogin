@@ -30,7 +30,7 @@ namespace NFCLoginSystem.Forms
             this.chkIsAdmin = new System.Windows.Forms.CheckBox();
             this.btnSave = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
-            this.btnGenerateNFCCard = new System.Windows.Forms.Button();
+            this.btnReadNFCCard = new System.Windows.Forms.Button();
             this.lblPasswordStrength = new System.Windows.Forms.Label();
             this.groupBoxUserInfo = new System.Windows.Forms.GroupBox();
             this.groupBoxNFC = new System.Windows.Forms.GroupBox();
@@ -145,7 +145,7 @@ namespace NFCLoginSystem.Forms
             // btnSave
             // 
             this.btnSave.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnSave.Location = new System.Drawing.Point(120, 320);
+            this.btnSave.Location = new System.Drawing.Point(120, 370);
             this.btnSave.Name = "btnSave";
             this.btnSave.Size = new System.Drawing.Size(100, 35);
             this.btnSave.TabIndex = 9;
@@ -156,7 +156,7 @@ namespace NFCLoginSystem.Forms
             // btnCancel
             // 
             this.btnCancel.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnCancel.Location = new System.Drawing.Point(250, 320);
+            this.btnCancel.Location = new System.Drawing.Point(250, 370);
             this.btnCancel.Name = "btnCancel";
             this.btnCancel.Size = new System.Drawing.Size(100, 35);
             this.btnCancel.TabIndex = 10;
@@ -164,16 +164,16 @@ namespace NFCLoginSystem.Forms
             this.btnCancel.UseVisualStyleBackColor = true;
             this.btnCancel.Click += new System.EventHandler(this.btnCancel_Click);
             // 
-            // btnGenerateNFCCard
+            // btnReadNFCCard
             // 
-            this.btnGenerateNFCCard.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnGenerateNFCCard.Location = new System.Drawing.Point(340, 30);
-            this.btnGenerateNFCCard.Name = "btnGenerateNFCCard";
-            this.btnGenerateNFCCard.Size = new System.Drawing.Size(100, 30);
-            this.btnGenerateNFCCard.TabIndex = 10;
-            this.btnGenerateNFCCard.Text = "生成卡ID";
-            this.btnGenerateNFCCard.UseVisualStyleBackColor = true;
-            this.btnGenerateNFCCard.Click += new System.EventHandler(this.btnGenerateNFCCard_Click);
+            this.btnReadNFCCard.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnReadNFCCard.Location = new System.Drawing.Point(340, 30);
+            this.btnReadNFCCard.Name = "btnReadNFCCard";
+            this.btnReadNFCCard.Size = new System.Drawing.Size(100, 30);
+            this.btnReadNFCCard.TabIndex = 10;
+            this.btnReadNFCCard.Text = "读取卡ID";
+            this.btnReadNFCCard.UseVisualStyleBackColor = true;
+            this.btnReadNFCCard.Click += new System.EventHandler(this.btnReadNFCCard_Click);
             // 
             // lblPasswordStrength
             // 
@@ -208,7 +208,7 @@ namespace NFCLoginSystem.Forms
             // 
             this.groupBoxNFC.Controls.Add(this.lblNFCCardId);
             this.groupBoxNFC.Controls.Add(this.txtNFCCardId);
-            this.groupBoxNFC.Controls.Add(this.btnGenerateNFCCard);
+            this.groupBoxNFC.Controls.Add(this.btnReadNFCCard);
             this.groupBoxNFC.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.groupBoxNFC.Location = new System.Drawing.Point(20, 270);
             this.groupBoxNFC.Name = "groupBoxNFC";
@@ -221,7 +221,7 @@ namespace NFCLoginSystem.Forms
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(500, 400);
+            this.ClientSize = new System.Drawing.Size(500, 450);
             this.Controls.Add(this.groupBoxNFC);
             this.Controls.Add(this.groupBoxUserInfo);
             this.Controls.Add(this.btnCancel);
@@ -254,7 +254,7 @@ namespace NFCLoginSystem.Forms
         private System.Windows.Forms.CheckBox chkIsAdmin;
         private System.Windows.Forms.Button btnSave;
         private System.Windows.Forms.Button btnCancel;
-        private System.Windows.Forms.Button btnGenerateNFCCard;
+        private System.Windows.Forms.Button btnReadNFCCard;
         private System.Windows.Forms.Label lblPasswordStrength;
         private System.Windows.Forms.GroupBox groupBoxUserInfo;
         private System.Windows.Forms.GroupBox groupBoxNFC;

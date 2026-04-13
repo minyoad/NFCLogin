@@ -119,19 +119,58 @@ namespace NFCLoginSystem.Forms
             Close();
         }
 
-        private void btnGenerateNFCCard_Click(object sender, EventArgs e)
+        private void btnReadNFCCard_Click(object sender, EventArgs e)
         {
-            // 生成随机的NFC卡ID（模拟）
-            string randomCardId = GenerateRandomCardId();
-            txtNFCCardId.Text = randomCardId;
-        }
+            NFCPCSCService? nfcService = null;
+            try
+            {
+                nfcService = new NFCPCSCService();
+                var instructionBox = new Form()
+                {
+                    Size = new System.Drawing.Size(300, 100),
+                    Text = "读取NFC卡",
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false
+                };
+                var label = new Label()
+                {
+                    Text = "请将NFC卡放置在读卡器上...",
+                    Dock = DockStyle.Fill,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleCenter
+                };
+                instructionBox.Controls.Add(label);
 
-        private string GenerateRandomCardId()
-        {
-            var random = new Random();
-            var bytes = new byte[4];
-            random.NextBytes(bytes);
-            return BitConverter.ToString(bytes).Replace("-", "");
+                nfcService.CardDetected += (s, cardId) =>
+                {
+                    if (instructionBox.InvokeRequired)
+                    {
+                        instructionBox.Invoke(new Action(() =>
+                        {
+                            txtNFCCardId.Text = cardId;
+                            instructionBox.Close();
+                        }));
+                    }
+                    else
+                    {
+                        txtNFCCardId.Text = cardId;
+                        instructionBox.Close();
+                    }
+                };
+
+                nfcService.StartMonitoring();
+                instructionBox.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"NFC服务初始化或读取失败: {ex.Message}", "NFC错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                nfcService?.StopMonitoring();
+                nfcService?.Dispose();
+            }
         }
 
         private void txtPassword_TextChanged(object sender, EventArgs e)

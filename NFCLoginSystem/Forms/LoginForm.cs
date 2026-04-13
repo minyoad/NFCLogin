@@ -73,11 +73,19 @@ namespace NFCLoginSystem.Forms
                 
                 if (result.Success)
                 {
-                    MessageBox.Show($"NFC登录成功！欢迎 {result.User?.DisplayName}", "登录成功", 
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    
-                    DialogResult = DialogResult.OK;
-                    Close();
+                    this.Hide();
+                    if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
+                    {
+                        var userManagementForm = new UserManagementForm(_authService);
+                        userManagementForm.FormClosed += (s, args) => this.Show();
+                        userManagementForm.Show();
+                    }
+                    else
+                    {
+                        var mainForm = new MainForm(_authService);
+                        mainForm.FormClosed += (s, args) => this.Show();
+                        mainForm.Show();
+                    }
                 }
                 else
                 {
@@ -131,11 +139,19 @@ namespace NFCLoginSystem.Forms
                 
                 if (result.Success)
                 {
-                    MessageBox.Show($"登录成功！欢迎 {result.User?.DisplayName}", "登录成功", 
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    
-                    DialogResult = DialogResult.OK;
-                    Close();
+                    this.Hide();
+                    if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
+                    {
+                        var userManagementForm = new UserManagementForm(_authService);
+                        userManagementForm.FormClosed += (s, args) => this.Show();
+                        userManagementForm.Show();
+                    }
+                    else
+                    {
+                        var mainForm = new MainForm(_authService);
+                        mainForm.FormClosed += (s, args) => this.Show();
+                        mainForm.Show();
+                    }
                 }
                 else
                 {
@@ -174,42 +190,6 @@ namespace NFCLoginSystem.Forms
             catch (Exception)
             {
                 // 忽略关闭时的错误
-            }
-        }
-
-        private void btnUserManagement_Click(object sender, EventArgs e)
-        {
-            // This button should only be visible/enabled after a successful login.
-            // We will assume the main form handles the visibility of this button.
-
-            // To access user management, a user must be logged in and be an admin.
-            if (_authService.CurrentUser == null)
-            {
-                MessageBox.Show("请先登录。", "提示", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-
-            if (!_authService.CurrentUser.IsAdmin)
-            {
-                MessageBox.Show("只有管理员才能访问用户管理功能。", "权限不足", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            try
-            {
-                // Hide the login form and show the user management form.
-                this.Hide();
-                var userManagementForm = new UserManagementForm(_authService);
-                userManagementForm.ShowDialog();
-                // After the user management form is closed, show the login form again.
-                this.Show();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"打开用户管理失败: {ex.Message}", "错误", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

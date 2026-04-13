@@ -67,7 +67,8 @@ namespace NFCLoginSystem.Services
             var adminUser = GetUserByUsername("admin");
             if (adminUser == null)
             {
-                CreateUser("admin", "admin123", "管理员", true);
+                var passwordHash = AuthenticationService.HashPassword("admin123");
+                CreateUser("admin", passwordHash, "管理员", true);
             }
         }
 

@@ -26,7 +26,6 @@ namespace NFCLoginSystem.Forms
             this.groupBoxNFC = new System.Windows.Forms.GroupBox();
             this.lblNFCStatus = new System.Windows.Forms.Label();
             this.pictureBoxLogo = new System.Windows.Forms.PictureBox();
-            this.btnUserManagement = new System.Windows.Forms.Button();
             this.groupBoxNFC.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBoxLogo)).BeginInit();
             this.SuspendLayout();
@@ -121,23 +120,11 @@ namespace NFCLoginSystem.Forms
             this.pictureBoxLogo.TabIndex = 7;
             this.pictureBoxLogo.TabStop = false;
             // 
-            // btnUserManagement
-            // 
-            this.btnUserManagement.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnUserManagement.Location = new System.Drawing.Point(520, 220);
-            this.btnUserManagement.Name = "btnUserManagement";
-            this.btnUserManagement.Size = new System.Drawing.Size(100, 30);
-            this.btnUserManagement.TabIndex = 8;
-            this.btnUserManagement.Text = "用户管理";
-            this.btnUserManagement.UseVisualStyleBackColor = true;
-            this.btnUserManagement.Click += new System.EventHandler(this.btnUserManagement_Click);
-            // 
             // LoginForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(650, 450);
-            this.Controls.Add(this.btnUserManagement);
             this.Controls.Add(this.pictureBoxLogo);
             this.Controls.Add(this.groupBoxNFC);
             this.Controls.Add(this.btnLogin);
@@ -170,6 +157,5 @@ namespace NFCLoginSystem.Forms
         private System.Windows.Forms.GroupBox groupBoxNFC;
         private System.Windows.Forms.Label lblNFCStatus;
         private System.Windows.Forms.PictureBox pictureBoxLogo;
-        private System.Windows.Forms.Button btnUserManagement;
     }
 }
