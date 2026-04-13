@@ -1,5 +1,6 @@
 #include "NFCCredentialProvider.h"
 #include "NFCCredentialProviderCredential.h"
+#include <initguid.h>
 #include <credentialprovider.h>
 #include <shlwapi.h>
 #include <strsafe.h>

@@ -48,11 +48,6 @@ bool ValidateUIDFormat(const std::string& uid) {
     return true;
 }
 
-std::string NFCManager::GetPCSCErrorString(LONG errorCode)
-{
-    return std::string();
-}
-
 std::wstring StringToWString(const std::string& str) {
     if (str.empty()) return std::wstring();
     
@@ -94,8 +89,7 @@ std::string GetCurrentTimestamp() {
     return ss.str();
 }
 
-std::string GetPCSCErrorString(LONG errorCode) {
-    // 简化的错误处理，避免switch语句的编译问题
+std::string NFCManager::GetPCSCErrorString(LONG errorCode) {
     if (errorCode == SCARD_S_SUCCESS) return "操作成功";
     if (errorCode == SCARD_E_CANCELLED) return "操作被取消";
     if (errorCode == SCARD_E_CANT_DISPOSE) return "无法释放资源";
@@ -116,10 +110,7 @@ std::string GetPCSCErrorString(LONG errorCode) {
     if (errorCode == SCARD_E_READER_UNAVAILABLE) return "读卡器不可用";
     if (errorCode == SCARD_E_SHARING_VIOLATION) return "共享冲突";
     if (errorCode == SCARD_E_TIMEOUT) return "操作超时";
-    // 注意：某些Windows SDK版本可能不包含以下错误码
-    // if (errorCode == SCARD_E_UNPOWERED_CARD) return "卡片未供电";
-    // if (errorCode == SCARD_E_UNSUPPORTED_CARD) return "不支持的卡片";
-    
+
     return "未知错误: " + std::to_string(errorCode);
 }
 

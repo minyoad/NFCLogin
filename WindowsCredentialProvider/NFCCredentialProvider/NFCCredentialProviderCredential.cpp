@@ -1,13 +1,14 @@
 #include "NFCCredentialProviderCredential.h"
-#include "NFCCredentialProviderCredential.h"
 #include "NFCCredentialProvider.h"
 #include "AccountManager.h"
+#include <initguid.h>
 #include <windows.h>
 #include <strsafe.h>
 #include <shlwapi.h>
 #include <security.h>
 #include <ntsecapi.h>
 #include <shlobj.h>
+#include <sddl.h>
 #include <sstream>
 #include <fstream>
 #include <iomanip>
@@ -49,14 +50,20 @@ NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
     }
 }
 
-// IUnknown实现
 IFACEMETHODIMP NFCCredentialProviderCredential::QueryInterface(REFIID riid, void **ppv) {
-    static const QITAB qit[] = {
-        QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential),
-        QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential2),
-        {0}
-    };
-    return QISearch(this, qit, riid, ppv);
+    if (!ppv) return E_INVALIDARG;
+    *ppv = nullptr;
+
+    if (riid == IID_IUnknown) {
+        *ppv = static_cast<ICredentialProviderCredential2*>(this);
+    } else if (riid == IID_ICredentialProviderCredential || riid == IID_ICredentialProviderCredential2) {
+        *ppv = static_cast<ICredentialProviderCredential2*>(this);
+    } else {
+        return E_NOINTERFACE;
+    }
+
+    AddRef();
+    return S_OK;
 }
 
 IFACEMETHODIMP_(ULONG) NFCCredentialProviderCredential::AddRef() {
@@ -273,109 +280,95 @@ IFACEMETHODIMP NFCCredentialProviderCredential::SetStringValue(DWORD dwFieldID, 
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr,
-                                                                CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs, 
+                                                                CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs,
                                                                 PWSTR *ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon) {
-    HRESULT hr = E_INVALIDARG;
-    
-    if (pcpgsr && pcpcs && ppszOptionalStatusText && pcpsiOptionalStatusIcon) {
-        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-        *ppszOptionalStatusText = nullptr;
-        *pcpsiOptionalStatusIcon = CPSI_NONE;
-        
-        // 验证凭据
-        if (_ValidateCredentials()) {
-            // 创建KERB_INTERACTIVE_LOGON结构
-            KERB_INTERACTIVE_LOGON kil = {0};
-            kil.MessageType = KerbInteractiveLogon;
-            
-            // 设置用户名
-            kil.UserName.Buffer = (PWSTR)CoTaskMemAlloc((m_strUsername.length() + 1) * sizeof(WCHAR));
-            if (kil.UserName.Buffer) {
-                StringCchCopyW(kil.UserName.Buffer, m_strUsername.length() + 1, m_strUsername.c_str());
-                kil.UserName.Length = (USHORT)(m_strUsername.length() * sizeof(WCHAR));
-                kil.UserName.MaximumLength = (USHORT)((m_strUsername.length() + 1) * sizeof(WCHAR));
-            }
-            
-            // 设置密码
-            kil.Password.Buffer = (PWSTR)CoTaskMemAlloc((m_strPassword.length() + 1) * sizeof(WCHAR));
-            if (kil.Password.Buffer) {
-                StringCchCopyW(kil.Password.Buffer, m_strPassword.length() + 1, m_strPassword.c_str());
-                kil.Password.Length = (USHORT)(m_strPassword.length() * sizeof(WCHAR));
-                kil.Password.MaximumLength = (USHORT)((m_strPassword.length() + 1) * sizeof(WCHAR));
-            }
-            
-            // 设置域（本地登录为空）
-            kil.LogonDomainName.Buffer = nullptr;
-            kil.LogonDomainName.Length = 0;
-            kil.LogonDomainName.MaximumLength = 0;
-            
-            // 序列化凭据
-            ULONG ulAuthPackage;
-            LSA_STRING lsaszAuthPackage;
-            char authPackageName[] = "Kerberos";
-            lsaszAuthPackage.Buffer = authPackageName;
-            lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
-            lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
-            
-            HANDLE hLsa;
-            NTSTATUS status = LsaConnectUntrusted(&hLsa);
-            if (status == 0) {
-                status = LsaLookupAuthenticationPackage(hLsa, &lsaszAuthPackage, &ulAuthPackage);
-                LsaDeregisterLogonProcess(hLsa);
-                hr = (status == 0) ? S_OK : E_FAIL;
-            } else {
-                hr = E_FAIL;
-            }
-            
-            if (SUCCEEDED(hr)) {
-                pcpcs->ulAuthenticationPackage = ulAuthPackage;
-                pcpcs->clsidCredentialProvider = CLSID_NFCCredentialProvider;
-                
-                // 序列化KERB_INTERACTIVE_LOGON
-                ULONG ulSize = sizeof(KERB_INTERACTIVE_LOGON) + 
-                              kil.UserName.Length + sizeof(WCHAR) + 
-                              kil.Password.Length + sizeof(WCHAR);
-                
-                pcpcs->rgbSerialization = (BYTE*)CoTaskMemAlloc(ulSize);
-                if (pcpcs->rgbSerialization) {
-                    BYTE* pbBuffer = pcpcs->rgbSerialization;
-                    
-                    // 复制结构
-                    CopyMemory(pbBuffer, &kil, sizeof(KERB_INTERACTIVE_LOGON));
-                    pbBuffer += sizeof(KERB_INTERACTIVE_LOGON);
-                    
-                    // 复制用户名
-                    if (kil.UserName.Buffer) {
-                        CopyMemory(pbBuffer, kil.UserName.Buffer, kil.UserName.Length + sizeof(WCHAR));
-                        CoTaskMemFree(kil.UserName.Buffer);
-                    }
-                    
-                    // 复制密码
-                    if (kil.Password.Buffer) {
-                        CopyMemory(pbBuffer, kil.Password.Buffer, kil.Password.Length + sizeof(WCHAR));
-                        CoTaskMemFree(kil.Password.Buffer);
-                    }
-                    
-                    pcpcs->cbSerialization = ulSize;
-                    hr = S_OK;
-                } else {
-                    hr = E_OUTOFMEMORY;
+    if (!pcpgsr || !pcpcs || !ppszOptionalStatusText || !pcpsiOptionalStatusIcon) {
+        return E_INVALIDARG;
+    }
+
+    *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
+    ZeroMemory(pcpcs, sizeof(*pcpcs));
+    *ppszOptionalStatusText = nullptr;
+    *pcpsiOptionalStatusIcon = CPSI_NONE;
+
+    if (_ValidateCredentials()) {
+        KERB_INTERACTIVE_LOGON kil = {0};
+        kil.MessageType = KerbInteractiveLogon;
+
+        kil.UserName.Buffer = (PWSTR)CoTaskMemAlloc((m_strUsername.length() + 1) * sizeof(WCHAR));
+        if (kil.UserName.Buffer) {
+            StringCchCopyW(kil.UserName.Buffer, m_strUsername.length() + 1, m_strUsername.c_str());
+            kil.UserName.Length = (USHORT)(m_strUsername.length() * sizeof(WCHAR));
+            kil.UserName.MaximumLength = (USHORT)((m_strUsername.length() + 1) * sizeof(WCHAR));
+        }
+
+        kil.Password.Buffer = (PWSTR)CoTaskMemAlloc((m_strPassword.length() + 1) * sizeof(WCHAR));
+        if (kil.Password.Buffer) {
+            StringCchCopyW(kil.Password.Buffer, m_strPassword.length() + 1, m_strPassword.c_str());
+            kil.Password.Length = (USHORT)(m_strPassword.length() * sizeof(WCHAR));
+            kil.Password.MaximumLength = (USHORT)((m_strPassword.length() + 1) * sizeof(WCHAR));
+        }
+
+        kil.LogonDomainName.Buffer = nullptr;
+        kil.LogonDomainName.Length = 0;
+        kil.LogonDomainName.MaximumLength = 0;
+
+        ULONG ulAuthPackage;
+        LSA_STRING lsaszAuthPackage;
+        char authPackageName[] = "Kerberos";
+        lsaszAuthPackage.Buffer = authPackageName;
+        lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
+        lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
+
+        HANDLE hLsa;
+        NTSTATUS status = LsaConnectUntrusted(&hLsa);
+        if (status == 0) {
+            status = LsaLookupAuthenticationPackage(hLsa, &lsaszAuthPackage, &ulAuthPackage);
+            LsaDeregisterLogonProcess(hLsa);
+        }
+
+        if (status == 0) {
+            pcpcs->ulAuthenticationPackage = ulAuthPackage;
+            pcpcs->clsidCredentialProvider = CLSID_NFCCredentialProvider;
+
+            ULONG ulSize = sizeof(KERB_INTERACTIVE_LOGON) +
+                          kil.UserName.Length + sizeof(WCHAR) +
+                          kil.Password.Length + sizeof(WCHAR);
+
+            pcpcs->rgbSerialization = (BYTE*)CoTaskMemAlloc(ulSize);
+            if (pcpcs->rgbSerialization) {
+                BYTE* pbBuffer = pcpcs->rgbSerialization;
+
+                CopyMemory(pbBuffer, &kil, sizeof(KERB_INTERACTIVE_LOGON));
+                pbBuffer += sizeof(KERB_INTERACTIVE_LOGON);
+
+                if (kil.UserName.Buffer) {
+                    CopyMemory(pbBuffer, kil.UserName.Buffer, kil.UserName.Length + sizeof(WCHAR));
+                    CoTaskMemFree(kil.UserName.Buffer);
                 }
-            }
-            
-            if (FAILED(hr)) {
-                if (kil.UserName.Buffer) CoTaskMemFree(kil.UserName.Buffer);
-                if (kil.Password.Buffer) CoTaskMemFree(kil.Password.Buffer);
+
+                if (kil.Password.Buffer) {
+                    CopyMemory(pbBuffer, kil.Password.Buffer, kil.Password.Length + sizeof(WCHAR));
+                    CoTaskMemFree(kil.Password.Buffer);
+                }
+
+                pcpcs->cbSerialization = ulSize;
+                *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+            } else {
+                *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
             }
         } else {
-            hr = E_FAIL;
-            *ppszOptionalStatusText = nullptr;
-            SHStrDupW(L"用户名或密码错误", ppszOptionalStatusText);
-            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+            if (kil.UserName.Buffer) CoTaskMemFree(kil.UserName.Buffer);
+            if (kil.Password.Buffer) CoTaskMemFree(kil.Password.Buffer);
+            *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
         }
+    } else {
+        SHStrDupW(L"Invalid username or password", ppszOptionalStatusText);
+        *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
     }
-    
-    return hr;
+
+    return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::GetComboBoxValueCount(DWORD dwFieldID, DWORD *pcItems, DWORD *pdwSelectedItem) {
@@ -444,27 +437,27 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetUserSid(PWSTR *ppszSid) {
     return hr;
 }
 
-// 辅助函数实现
+// Helper function implementation
 HRESULT NFCCredentialProviderCredential::_GetStringValueInternal(DWORD dwFieldID, PWSTR *ppsz) {
     HRESULT hr = E_INVALIDARG;
-    
+
     if (dwFieldID < m_dwFieldCount && ppsz) {
         switch (dwFieldID) {
             case FIELD_USERNAME:
-                hr = SHStrDupW(L"用户名", ppsz);
+                hr = SHStrDupW(L"Username", ppsz);
                 break;
             case FIELD_PASSWORD:
-                hr = SHStrDupW(L"密码", ppsz);
+                hr = SHStrDupW(L"Password", ppsz);
                 break;
             case FIELD_SUBMIT_BUTTON:
-                hr = SHStrDupW(L"登录", ppsz);
+                hr = SHStrDupW(L"Login", ppsz);
                 break;
             default:
                 hr = SHStrDupW(L"", ppsz);
                 break;
         }
     }
-    
+
     return hr;
 }
 

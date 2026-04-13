@@ -11,7 +11,7 @@
 // 前向声明
 class AccountManager;
 
-class NFCCredentialProviderCredential : public ICredentialProviderCredential, public ICredentialProviderCredential2 {
+class NFCCredentialProviderCredential : public ICredentialProviderCredential2 {
 public:
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void **ppv);
