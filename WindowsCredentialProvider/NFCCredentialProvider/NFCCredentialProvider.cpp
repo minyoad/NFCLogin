@@ -273,8 +273,16 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDEN
     return S_OK;
 }
 
+#include <stdio.h>
+
+#define PROVIDER_VERSION "1.0.2" // 版本号提升
+
+// 将日志消息写入 C:\temp\nfc_provider.log
+void LogMessage(const char* message);
+
 // DLL导出函数
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv) {
+    LogMessage("DllGetClassObject called");
     *ppv = nullptr;
     
     HRESULT hr = E_FAIL;
@@ -363,6 +371,20 @@ STDAPI DllRegisterServer() {
     return hr;
 }
 
+void LogMessage(const char* message) {
+    FILE* log_file = nullptr;
+    if (fopen_s(&log_file, "C:\\temp\\nfc_provider.log", "a") == 0 && log_file) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        fprintf(log_file, "[%04d-%02d-%02d %02d:%02d:%02d.%03d] [v%s] %s\n",
+            st.wYear, st.wMonth, st.wDay,
+            st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+            PROVIDER_VERSION,
+            message);
+        fclose(log_file);
+    }
+}
+
 STDAPI DllUnregisterServer() {
     HRESULT hr = S_OK;
     
@@ -383,8 +405,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
     case DLL_PROCESS_ATTACH:
         g_hinst = hModule;
         DisableThreadLibraryCalls(hModule);
+        LogMessage("DLL_PROCESS_ATTACH");
+        break;
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
         break;
     case DLL_PROCESS_DETACH:
+        LogMessage("DLL_PROCESS_DETACH");
         break;
     }
     return TRUE;
