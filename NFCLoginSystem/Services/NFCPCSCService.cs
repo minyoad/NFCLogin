@@ -70,12 +70,12 @@ namespace NFCLoginSystem.Services
         private void OnStatusChanged(object sender, StatusChangeEventArgs e)
         {
             // 检查卡片是否插入
-            if (e.NewState.HasFlag(SCardState.Present) && !e.LastState.HasFlag(SCardState.Present))
+            if (e.NewState.HasFlag(SCRState.Present) && !e.LastState.HasFlag(SCRState.Present))
             {
                 OnCardInserted(e.ReaderName);
             }
             // 检查卡片是否移除
-            else if (!e.NewState.HasFlag(SCardState.Present) && e.LastState.HasFlag(SCardState.Present))
+            else if (!e.NewState.HasFlag(SCRState.Present) && e.LastState.HasFlag(SCRState.Present))
             {
                 ReaderStatusChanged?.Invoke(this, "NFC卡已移除");
             }
