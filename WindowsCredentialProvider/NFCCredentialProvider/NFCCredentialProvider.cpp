@@ -99,7 +99,7 @@ private:
 
 NFCCredentialProvider::NFCCredentialProvider() : 
     m_cRef(1), m_cpus(CPUS_LOGON), m_rgcpfd(nullptr), m_dwFieldCount(0), 
-    m_rgpcpc(nullptr), m_dwCredentialCount(0), m_pcpe(nullptr), m_upAdviseContext(0) {
+    m_rgpcpc(nullptr), m_dwCredentialCount(0), m_pcpe(nullptr), m_upAdviseContext(0), m_pUserArray(nullptr) {
     InterlockedIncrement(&g_cRefModule);
     LogMessage("Provider created, constructor successful");
 }
@@ -127,6 +127,11 @@ NFCCredentialProvider::~NFCCredentialProvider() {
         }
         CoTaskMemFree(m_rgcpfd);
     }
+
+    if (m_pUserArray) {
+        m_pUserArray->Release();
+        m_pUserArray = nullptr;
+    }
     
     InterlockedDecrement(&g_cRefModule);
     LogMessage("Provider destroyed");
@@ -137,6 +142,7 @@ IFACEMETHODIMP NFCCredentialProvider::QueryInterface(REFIID riid, void **ppv) {
     LogMessage("NFCCredentialProvider::QueryInterface asking for %s", GuidToString(riid));
     static const QITAB qit[] = {
         QITABENT(NFCCredentialProvider, ICredentialProvider),
+        QITABENT(NFCCredentialProvider, ICredentialProviderSetUserArray),
         {0}
     };
     HRESULT hr = QISearch(this, qit, riid, ppv);
@@ -298,6 +304,19 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDEN
     (*ppcpfd)->guidFieldType = GUID_NULL;
     (*ppcpfd)->dwFieldID = dwIndex;
     
+    return S_OK;
+}
+
+// ICredentialProviderSetUserArray实现
+IFACEMETHODIMP NFCCredentialProvider::SetUserArray(ICredentialProviderUserArray *pUserArray) {
+    LogMessage("SetUserArray called");
+    if (m_pUserArray) {
+        m_pUserArray->Release();
+    }
+    m_pUserArray = pUserArray;
+    if (m_pUserArray) {
+        m_pUserArray->AddRef();
+    }
     return S_OK;
 }
 

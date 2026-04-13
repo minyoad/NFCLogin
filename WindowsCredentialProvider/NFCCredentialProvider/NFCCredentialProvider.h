@@ -65,7 +65,7 @@ inline bool ValidateNFCCard(const std::string& nfcUID) {
 }
 
 // NFC凭证提供程序类
-class NFCCredentialProvider : public ICredentialProvider {
+class NFCCredentialProvider : public ICredentialProvider, public ICredentialProviderSetUserArray {
 public:
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void **ppv);
@@ -82,6 +82,9 @@ public:
     IFACEMETHODIMP GetFieldDescriptorCount(DWORD *pdwCount);
     IFACEMETHODIMP GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd);
 
+    // ICredentialProviderSetUserArray
+    IFACEMETHODIMP SetUserArray(ICredentialProviderUserArray *pUserArray);
+
 public:
     NFCCredentialProvider();
     virtual ~NFCCredentialProvider();
@@ -95,4 +98,5 @@ private:
     DWORD m_dwCredentialCount;      // 凭据数量
     ICredentialProviderEvents *m_pcpe;  // 事件接口
     UINT_PTR m_upAdviseContext;     // 建议上下文
+    ICredentialProviderUserArray *m_pUserArray; // 用户数组
 };
