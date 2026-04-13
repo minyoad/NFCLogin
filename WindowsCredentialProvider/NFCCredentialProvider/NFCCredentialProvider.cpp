@@ -84,7 +84,7 @@ NFCCredentialProvider::NFCCredentialProvider() :
     m_cRef(1), m_cpus(CPUS_LOGON), m_rgcpfd(nullptr), m_dwFieldCount(0), 
     m_rgpcpc(nullptr), m_dwCredentialCount(0), m_pcpe(nullptr), m_upAdviseContext(0) {
     InterlockedIncrement(&g_cRefModule);
-    LogMessage("Provider created");
+    LogMessage("Provider created, constructor successful");
 }
 
 NFCCredentialProvider::~NFCCredentialProvider() {
@@ -139,7 +139,7 @@ IFACEMETHODIMP_(ULONG) NFCCredentialProvider::Release() {
 // ICredentialProvider实现
 IFACEMETHODIMP NFCCredentialProvider::SetUsageScenario(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, DWORD dwFlags) {
     m_cpus = cpus;
-    LogMessage("SetUsageScenario called");
+    LogMessage("SetUsageScenario called, scenario set");
     return S_OK;
 }
 
@@ -282,7 +282,7 @@ void LogMessage(const char* message);
 
 // DLL导出函数
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv) {
-    LogMessage("DllGetClassObject called");
+    LogMessage("DllGetClassObject called, attempting to create class factory");
     *ppv = nullptr;
     
     HRESULT hr = E_FAIL;
@@ -291,9 +291,13 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv) {
         if (pClassFactory) {
             hr = pClassFactory->QueryInterface(riid, ppv);
             pClassFactory->Release();
+            LogMessage("Class factory created successfully");
         } else {
             hr = E_OUTOFMEMORY;
+            LogMessage("Failed to create class factory, out of memory");
         }
+    } else {
+        LogMessage("CLSID does not match NFCCredentialProvider");
     }
     
     return hr;
