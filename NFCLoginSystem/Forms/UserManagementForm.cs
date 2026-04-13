@@ -89,7 +89,10 @@ namespace NFCLoginSystem.Forms
                     var userPrincipal = new UserPrincipal(context);
                     using (var searcher = new PrincipalSearcher(userPrincipal))
                     {
-                        _users = searcher.FindAll().Cast<UserPrincipal>().ToList();
+                        _users = searcher.FindAll()
+                            .Cast<UserPrincipal>()
+                            .Where(u => u.Enabled == true) // 只选择已启用的用户
+                            .ToList();
                     }
                 }
 
@@ -109,7 +112,7 @@ namespace NFCLoginSystem.Forms
 
                 dataGridViewUsers.DataSource = null;
                 dataGridViewUsers.DataSource = _displayUsers;
-                lblTotalUsers.Text = $"总用户数: {_users.Count}";
+                lblTotalUsers.Text = $"可登录用户数: {_users.Count}";
             }
             catch (Exception ex)
             {
