@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <string>
 #include <memory>
+#include <vector>
+#include <winscard.h>
 
 // NFC卡类型枚举
 enum NFCCardType {
@@ -59,46 +61,48 @@ public:
     // 获取NFC读卡器信息
     HRESULT GetReaderInfo(std::wstring& readerName, std::wstring& readerVersion);
 
+    // 测试PCSC功能
+    bool TestPCSC();
+
 private:
-    // 初始化串口通信
-    HRESULT InitializeSerialPort();
+    // 初始化PCSC资源
+    HRESULT InitializePCSC();
 
-    // 关闭串口通信
-    void CloseSerialPort();
+    // 释放PCSC资源
+    void CleanupPCSC();
 
-    // 发送命令到读卡器
-    HRESULT SendCommand(const std::string& command, std::string& response);
+    // 发送APDU命令到卡片
+    HRESULT SendAPDUCommand(const BYTE* cmd, DWORD cmdLen, BYTE* response, DWORD* responseLen);
 
     // 解析UID响应
-    HRESULT ParseUIDResponse(const std::string& response, std::string& uid);
+    HRESULT ParseUIDResponse(const BYTE* response, DWORD responseLen, std::string& uid);
 
     // 获取卡片类型
-    NFCCardType DetectCardType(const std::string& atqa);
+    NFCCardType DetectCardType(const BYTE* atr, DWORD atrLen);
 
-    // 计算校验和
-    BYTE CalculateChecksum(const BYTE* data, size_t length);
+    // 获取PCSC错误信息
+    std::string GetPCSCErrorString(LONG errorCode);
 
     // 私有成员变量
-    HANDLE m_hSerialPort;          // 串口句柄
-    std::wstring m_portName;       // 串口名称
+    SCARDCONTEXT m_hContext;        // PCSC上下文
+    SCARDHANDLE m_hCard;           // 卡片连接句柄
+    std::wstring m_readerName;     // 读卡器名称
+    DWORD m_dwActiveProtocol;       // 活动协议
     bool m_bInitialized;           // 是否已初始化
     bool m_bDebugMode;             // 调试模式
-    std::string m_lastError;     // 最后错误信息
+    std::string m_lastError;       // 最后错误信息
     NFCCardInfo m_lastCardInfo;    // 最后检测到的卡片信息
-    
-    // 常用命令定义
-    static const std::string CMD_GET_VERSION;
-    static const std::string CMD_READ_UID;
-    static const std::string CMD_DETECT_CARD;
-    static const std::string CMD_GET_CARD_TYPE;
+    std::vector<std::wstring> m_readers; // 可用读卡器列表
     
     // 响应超时时间
-    static const DWORD RESPONSE_TIMEOUT = 1000; // 1秒
+    static const DWORD RESPONSE_TIMEOUT = 5000; // 5秒
 };
 
 // 辅助函数
-std::wstring GetSerialPortList();
 std::string ConvertToHex(const BYTE* data, size_t length);
 std::vector<BYTE> ParseHexString(const std::string& hexString);
 bool ValidateUIDFormat(const std::string& uid);
 std::string GetCurrentTimestamp();
+std::string GetPCSCErrorString(LONG errorCode);
+std::string WStringToString(const std::wstring& wstr);
+SYSTEMTIME GetCurrentSystemTime();

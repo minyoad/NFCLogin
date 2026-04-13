@@ -1,379 +1,14 @@
 #include "NFCManager.h"
 #include <windows.h>
-#include <setupapi.h>
-#include <devguid.h>
-#include <tchar.h>
+#include <winscard.h>
 #include <sstream>
 #include <iomanip>
 #include <thread>
 #include <chrono>
 
-#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "winscard.lib")
 
-// 静态成员初始化
-const std::string NFCManager::CMD_GET_VERSION = "GET_VERSION";
-const std::string NFCManager::CMD_READ_UID = "READ_UID";
-const std::string NFCManager::CMD_DETECT_CARD = "DETECT_CARD";
-const std::string NFCManager::CMD_GET_CARD_TYPE = "GET_CARD_TYPE";
-
-NFCManager::NFCManager() : 
-    m_hSerialPort(INVALID_HANDLE_VALUE),
-    m_bInitialized(false),
-    m_bDebugMode(false) {
-    ZeroMemory(&m_lastCardInfo, sizeof(m_lastCardInfo));
-}
-
-NFCManager::~NFCManager() {
-    CloseSerialPort();
-}
-
-HRESULT NFCManager::Initialize() {
-    if (m_bInitialized) {
-        return S_OK;
-    }
-
-    // 检测可用的串口
-    std::wstring portList = GetSerialPortList();
-    if (portList.empty()) {
-        m_lastError = "未检测到串口设备";
-        return E_FAIL;
-    }
-
-    // 尝试连接到NFC读卡器
-    // 这里假设读卡器连接到第一个可用串口
-    std::wstring firstPort = portList.substr(0, portList.find(L','));
-    if (!firstPort.empty()) {
-        m_portName = firstPort;
-        HRESULT hr = InitializeSerialPort();
-        if (SUCCEEDED(hr)) {
-            m_bInitialized = true;
-            return S_OK;
-        }
-    }
-
-    m_lastError = "无法连接到NFC读卡器";
-    return E_FAIL;
-}
-
-HRESULT NFCManager::InitializeSerialPort() {
-    // 打开串口
-    m_hSerialPort = CreateFileW(
-        m_portName.c_str(),
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        nullptr,
-        OPEN_EXISTING,
-        0,
-        nullptr
-    );
-
-    if (m_hSerialPort == INVALID_HANDLE_VALUE) {
-        m_lastError = "无法打开串口: " + WStringToString(m_portName);
-        return E_FAIL;
-    }
-
-    // 配置串口参数
-    DCB dcb = {0};
-    dcb.DCBlength = sizeof(dcb);
-
-    if (!GetCommState(m_hSerialPort, &dcb)) {
-        CloseHandle(m_hSerialPort);
-        m_hSerialPort = INVALID_HANDLE_VALUE;
-        m_lastError = "无法获取串口状态";
-        return E_FAIL;
-    }
-
-    // 设置常见NFC读卡器参数：9600波特率，8数据位，无校验，1停止位
-    dcb.BaudRate = CBR_9600;
-    dcb.ByteSize = 8;
-    dcb.Parity = NOPARITY;
-    dcb.StopBits = ONESTOPBIT;
-
-    if (!SetCommState(m_hSerialPort, &dcb)) {
-        CloseHandle(m_hSerialPort);
-        m_hSerialPort = INVALID_HANDLE_VALUE;
-        m_lastError = "无法设置串口参数";
-        return E_FAIL;
-    }
-
-    // 设置超时
-    COMMTIMEOUTS timeouts = {0};
-    timeouts.ReadIntervalTimeout = 50;
-    timeouts.ReadTotalTimeoutConstant = 50;
-    timeouts.ReadTotalTimeoutMultiplier = 10;
-    timeouts.WriteTotalTimeoutConstant = 50;
-    timeouts.WriteTotalTimeoutMultiplier = 10;
-
-    if (!SetCommTimeouts(m_hSerialPort, &timeouts)) {
-        CloseHandle(m_hSerialPort);
-        m_hSerialPort = INVALID_HANDLE_VALUE;
-        m_lastError = "无法设置串口超时";
-        return E_FAIL;
-    }
-
-    return S_OK;
-}
-
-void NFCManager::CloseSerialPort() {
-    if (m_hSerialPort != INVALID_HANDLE_VALUE) {
-        CloseHandle(m_hSerialPort);
-        m_hSerialPort = INVALID_HANDLE_VALUE;
-    }
-    m_bInitialized = false;
-}
-
-HRESULT NFCManager::DetectReader(bool& readerPresent) {
-    readerPresent = false;
-
-    if (!m_bInitialized) {
-        HRESULT hr = Initialize();
-        if (FAILED(hr)) {
-            return hr;
-        }
-    }
-
-    // 发送检测命令
-    std::string response;
-    HRESULT hr = SendCommand(CMD_GET_VERSION, response);
-    
-    if (SUCCEEDED(hr) && !response.empty()) {
-        readerPresent = true;
-        return S_OK;
-    }
-
-    return S_FALSE;
-}
-
-HRESULT NFCManager::ReadCardUID(std::string& uid) {
-    uid.clear();
-
-    if (!m_bInitialized) {
-        return E_FAIL;
-    }
-
-    // 首先检测卡片是否存在
-    bool cardPresent = false;
-    HRESULT hr = IsCardPresent(cardPresent);
-    if (FAILED(hr) || !cardPresent) {
-        m_lastError = "未检测到NFC卡片";
-        return E_FAIL;
-    }
-
-    // 读取UID
-    std::string response;
-    hr = SendCommand(CMD_READ_UID, response);
-    
-    if (FAILED(hr)) {
-        m_lastError = "无法读取卡片UID";
-        return hr;
-    }
-
-    // 解析UID响应
-    return ParseUIDResponse(response, uid);
-}
-
-HRESULT NFCManager::IsCardPresent(bool& cardPresent) {
-    cardPresent = false;
-
-    if (!m_bInitialized) {
-        return E_FAIL;
-    }
-
-    std::string response;
-    HRESULT hr = SendCommand(CMD_DETECT_CARD, response);
-    
-    if (SUCCEEDED(hr) && response.find("CARD_PRESENT") != std::string::npos) {
-        cardPresent = true;
-        return S_OK;
-    }
-
-    return S_FALSE;
-}
-
-HRESULT NFCManager::SendCommand(const std::string& command, std::string& response) {
-    response.clear();
-
-    if (m_hSerialPort == INVALID_HANDLE_VALUE) {
-        m_lastError = "串口未打开";
-        return E_FAIL;
-    }
-
-    // 发送命令
-    DWORD bytesWritten = 0;
-    std::string cmd = command + "\r\n"; // 添加换行符
-    
-    if (!WriteFile(m_hSerialPort, cmd.c_str(), cmd.length(), &bytesWritten, nullptr)) {
-        m_lastError = "发送命令失败";
-        return E_FAIL;
-    }
-
-    // 等待响应
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // 读取响应
-    char buffer[256] = {0};
-    DWORD bytesRead = 0;
-    
-    if (ReadFile(m_hSerialPort, buffer, sizeof(buffer) - 1, &bytesRead, nullptr)) {
-        if (bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            response = buffer;
-            
-            // 移除换行符和回车符
-            size_t pos = response.find_last_not_of("\r\n");
-            if (pos != std::string::npos) {
-                response = response.substr(0, pos + 1);
-            }
-            
-            return S_OK;
-        }
-    }
-
-    m_lastError = "读取响应失败";
-    return E_FAIL;
-}
-
-HRESULT NFCManager::ParseUIDResponse(const std::string& response, std::string& uid) {
-    uid.clear();
-
-    // 查找UID标记
-    size_t uidPos = response.find("UID:");
-    if (uidPos == std::string::npos) {
-        m_lastError = "响应格式错误：未找到UID";
-        return E_FAIL;
-    }
-
-    // 提取UID值
-    size_t uidStart = uidPos + 4; // 跳过"UID:"
-    size_t uidEnd = response.find(" ", uidStart);
-    if (uidEnd == std::string::npos) {
-        uidEnd = response.length();
-    }
-
-    uid = response.substr(uidStart, uidEnd - uidStart);
-    
-    // 验证UID格式
-    if (!ValidateUIDFormat(uid)) {
-        m_lastError = "UID格式错误";
-        uid.clear();
-        return E_FAIL;
-    }
-
-    // 更新最后检测到的卡片信息
-    m_lastCardInfo.uid = uid;
-    m_lastCardInfo.detectedTime = GetCurrentSystemTime();
-    
-    return S_OK;
-}
-
-HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
-    if (!m_bInitialized) {
-        return E_FAIL;
-    }
-
-    // 首先读取UID
-    std::string uid;
-    HRESULT hr = ReadCardUID(uid);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    // 获取卡片类型
-    std::string response;
-    hr = SendCommand(CMD_GET_CARD_TYPE, response);
-    
-    if (SUCCEEDED(hr)) {
-        // 解析卡片类型
-        if (response.find("MIFARE_CLASSIC") != std::string::npos) {
-            m_lastCardInfo.type = NFC_CARD_MIFARE_CLASSIC;
-            m_lastCardInfo.typeName = "MIFARE Classic";
-            m_lastCardInfo.size = 1024; // 1KB
-        } else if (response.find("MIFARE_ULTRALIGHT") != std::string::npos) {
-            m_lastCardInfo.type = NFC_CARD_MIFARE_ULTRALIGHT;
-            m_lastCardInfo.typeName = "MIFARE Ultralight";
-            m_lastCardInfo.size = 64; // 64字节
-        } else if (response.find("NTAG") != std::string::npos) {
-            m_lastCardInfo.type = NFC_CARD_NTAG;
-            m_lastCardInfo.typeName = "NTAG";
-            m_lastCardInfo.size = 924; // NTAG213
-        } else {
-            m_lastCardInfo.type = NFC_CARD_UNKNOWN;
-            m_lastCardInfo.typeName = "Unknown";
-            m_lastCardInfo.size = 0;
-        }
-    }
-
-    cardInfo = m_lastCardInfo;
-    return S_OK;
-}
-
-HRESULT NFCManager::WaitForCard(DWORD timeoutMs) {
-    DWORD startTime = GetTickCount();
-    
-    while (GetTickCount() - startTime < timeoutMs) {
-        bool cardPresent = false;
-        HRESULT hr = IsCardPresent(cardPresent);
-        
-        if (SUCCEEDED(hr) && cardPresent) {
-            return S_OK;
-        }
-        
-        // 等待100ms后重试
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    
-    return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
-}
-
-std::string NFCManager::GetLastErrorMessage() {
-    return m_lastError;
-}
-
-void NFCManager::SetDebugMode(bool enable) {
-    m_bDebugMode = enable;
-}
-
-// 辅助函数实现
-std::wstring GetSerialPortList() {
-    std::wstring portList;
-    
-    // 使用SetupAPI枚举串口设备
-    HDEVINFO hDevInfo = SetupDiGetClassDevs(&GUID_DEVCLASS_PORTS, nullptr, nullptr, DIGCF_PRESENT);
-    if (hDevInfo == INVALID_HANDLE_VALUE) {
-        return portList;
-    }
-
-    SP_DEVINFO_DATA devInfoData = {0};
-    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-
-    for (DWORD i = 0; SetupDiEnumDeviceInfo(hDevInfo, i, &devInfoData); i++) {
-        // 获取设备友好名称
-        WCHAR friendlyName[256] = {0};
-        DWORD requiredSize = 0;
-        
-        if (SetupDiGetDeviceRegistryPropertyW(hDevInfo, &devInfoData, SPDRP_FRIENDLYNAME, 
-                                              nullptr, (PBYTE)friendlyName, sizeof(friendlyName), &requiredSize)) {
-            std::wstring deviceName = friendlyName;
-            
-            // 查找COM端口
-            size_t comPos = deviceName.find(L"(COM");
-            if (comPos != std::wstring::npos) {
-                size_t comEnd = deviceName.find(L")", comPos);
-                if (comEnd != std::wstring::npos) {
-                    std::wstring comPort = deviceName.substr(comPos + 1, comEnd - comPos - 1);
-                    if (!portList.empty()) {
-                        portList += L",";
-                    }
-                    portList += comPort;
-                }
-            }
-        }
-    }
-
-    SetupDiDestroyDeviceInfoList(hDevInfo);
-    return portList;
-}
-
+// 辅助函数实现 - 移到文件前面
 std::string ConvertToHex(const BYTE* data, size_t length) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0');
@@ -434,4 +69,429 @@ SYSTEMTIME GetCurrentSystemTime() {
     SYSTEMTIME st;
     GetLocalTime(&st);
     return st;
+}
+
+std::string GetCurrentTimestamp() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    
+    std::stringstream ss;
+    ss << std::setfill('0')
+       << std::setw(4) << st.wYear << "-"
+       << std::setw(2) << st.wMonth << "-"
+       << std::setw(2) << st.wDay << " "
+       << std::setw(2) << st.wHour << ":"
+       << std::setw(2) << st.wMinute << ":"
+       << std::setw(2) << st.wSecond << "."
+       << std::setw(3) << st.wMilliseconds;
+    
+    return ss.str();
+}
+
+std::string GetPCSCErrorString(LONG errorCode) {
+    switch (errorCode) {
+        case SCARD_S_SUCCESS:
+            return "操作成功";
+        case SCARD_E_CANCELLED:
+            return "操作被取消";
+        case SCARD_E_CANT_DISPOSE:
+            return "无法释放资源";
+        case SCARD_E_INSUFFICIENT_BUFFER:
+            return "缓冲区不足";
+        case SCARD_E_INVALID_ATR:
+            return "无效的ATR";
+        case SCARD_E_INVALID_HANDLE:
+            return "无效句柄";
+        case SCARD_E_INVALID_PARAMETER:
+            return "无效参数";
+        case SCARD_E_INVALID_TARGET:
+            return "无效目标";
+        case SCARD_E_INVALID_VALUE:
+            return "无效值";
+        case SCARD_E_NO_MEMORY:
+            return "内存不足";
+        case SCARD_E_UNKNOWN_CARD:
+            return "未知卡片";
+        case SCARD_E_UNKNOWN_READER:
+            return "未知读卡器";
+        case SCARD_E_NO_SERVICE:
+            return "PCSC服务未运行";
+        case SCARD_E_NO_SMARTCARD:
+            return "未检测到智能卡";
+        case SCARD_E_NOT_READY:
+            return "读卡器未就绪";
+        case SCARD_E_NOT_TRANSACTED:
+            return "交易未完成";
+        case SCARD_E_PROTO_MISMATCH:
+            return "协议不匹配";
+        case SCARD_E_READER_UNAVAILABLE:
+            return "读卡器不可用";
+        case SCARD_E_SHARING_VIOLATION:
+            return "共享冲突";
+        case SCARD_E_TIMEOUT:
+            return "操作超时";
+        case SCARD_E_UNPOWERED_CARD:
+            return "卡片未供电";
+        case SCARD_E_UNSUPPORTED_CARD:
+            return "不支持的卡片";
+        default:
+            return "未知错误: " + std::to_string(errorCode);
+    }
+}
+
+// NFCManager类实现
+NFCManager::NFCManager() : 
+    m_hContext(NULL),
+    m_hCard(NULL),
+    m_dwActiveProtocol(SCARD_PROTOCOL_UNDEFINED),
+    m_bInitialized(false),
+    m_bDebugMode(false) {
+    ZeroMemory(&m_lastCardInfo, sizeof(m_lastCardInfo));
+}
+
+NFCManager::~NFCManager() {
+    CleanupPCSC();
+}
+
+HRESULT NFCManager::Initialize() {
+    if (m_bInitialized) {
+        return S_OK;
+    }
+
+    HRESULT hr = InitializePCSC();
+    if (SUCCEEDED(hr)) {
+        m_bInitialized = true;
+        return S_OK;
+    }
+
+    return E_FAIL;
+}
+
+HRESULT NFCManager::InitializePCSC() {
+    // 建立PCSC上下文
+    LONG lReturn = SCardEstablishContext(SCARD_SCOPE_SYSTEM, NULL, NULL, &m_hContext);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法建立PCSC上下文: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 获取读卡器列表
+    DWORD dwReaders = SCARD_AUTOALLOCATE;
+    LPWSTR mszReaders = NULL;
+    
+    lReturn = SCardListReaders(m_hContext, NULL, (LPWSTR)&mszReaders, &dwReaders);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取读卡器列表: " + GetPCSCErrorString(lReturn);
+        SCardReleaseContext(m_hContext);
+        m_hContext = NULL;
+        return E_FAIL;
+    }
+
+    // 解析读卡器名称
+    m_readers.clear();
+    LPWSTR pReader = mszReaders;
+    while (*pReader) {
+        m_readers.push_back(pReader);
+        pReader += wcslen(pReader) + 1;
+    }
+
+    if (m_readers.empty()) {
+        m_lastError = "未找到可用的NFC读卡器";
+        SCardFreeMemory(m_hContext, mszReaders);
+        SCardReleaseContext(m_hContext);
+        m_hContext = NULL;
+        return E_FAIL;
+    }
+
+    // 使用第一个读卡器
+    m_readerName = m_readers[0];
+    SCardFreeMemory(m_hContext, mszReaders);
+
+    return S_OK;
+}
+
+void NFCManager::CleanupPCSC() {
+    if (m_hCard != NULL) {
+        SCardDisconnect(m_hCard, SCARD_LEAVE_CARD);
+        m_hCard = NULL;
+    }
+
+    if (m_hContext != NULL) {
+        SCardReleaseContext(m_hContext);
+        m_hContext = NULL;
+    }
+
+    m_bInitialized = false;
+}
+
+HRESULT NFCManager::ConnectToCard() {
+    if (!m_bInitialized) {
+        HRESULT hr = Initialize();
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    if (m_readerName.empty()) {
+        m_lastError = "未选择读卡器";
+        return E_FAIL;
+    }
+
+    // 断开之前的连接
+    if (m_hCard != NULL) {
+        SCardDisconnect(m_hCard, SCARD_LEAVE_CARD);
+        m_hCard = NULL;
+    }
+
+    // 连接到卡片
+    LONG lReturn = SCardConnect(
+        m_hContext,
+        m_readerName.c_str(),
+        SCARD_SHARE_SHARED,
+        SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+        &m_hCard,
+        &m_dwActiveProtocol
+    );
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法连接卡片: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    return S_OK;
+}
+
+HRESULT NFCManager::DisconnectFromCard() {
+    if (m_hCard != NULL) {
+        LONG lReturn = SCardDisconnect(m_hCard, SCARD_LEAVE_CARD);
+        if (lReturn != SCARD_S_SUCCESS) {
+            m_lastError = "断开卡片连接失败: " + GetPCSCErrorString(lReturn);
+            return E_FAIL;
+        }
+        m_hCard = NULL;
+    }
+
+    return S_OK;
+}
+
+HRESULT NFCManager::IsCardPresent(bool& cardPresent) {
+    if (!m_bInitialized) {
+        HRESULT hr = Initialize();
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    if (m_readerName.empty()) {
+        m_lastError = "未选择读卡器";
+        return E_FAIL;
+    }
+
+    // 获取读卡器状态
+    SCARD_READERSTATE rgReaderStates[1];
+    rgReaderStates[0].szReader = m_readerName.c_str();
+    rgReaderStates[0].dwCurrentState = SCARD_STATE_UNAWARE;
+
+    LONG lReturn = SCardGetStatusChange(m_hContext, 0, rgReaderStates, 1);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取读卡器状态: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 检查是否有卡片
+    cardPresent = (rgReaderStates[0].dwEventState & SCARD_STATE_PRESENT) != 0;
+    
+    return S_OK;
+}
+
+HRESULT NFCManager::ReadCardUID(std::string& uid) {
+    if (m_hCard == NULL) {
+        HRESULT hr = ConnectToCard();
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    // 获取卡片状态
+    SCARD_READERSTATE rgReaderStates[1];
+    rgReaderStates[0].szReader = m_readerName.c_str();
+    rgReaderStates[0].dwCurrentState = SCARD_STATE_UNAWARE;
+
+    LONG lReturn = SCardGetStatusChange(m_hContext, 0, rgReaderStates, 1);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取读卡器状态: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 获取ATR
+    DWORD dwAtrLen = 32;
+    BYTE pbAtr[32];
+    DWORD dwState, dwProtocol;
+
+    lReturn = SCardStatus(m_hCard, NULL, NULL, &dwState, &dwProtocol, pbAtr, &dwAtrLen);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取卡片状态: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 根据卡片类型发送相应的APDU命令
+    // 这里实现MIFARE卡片的UID读取
+    BYTE uidCommand[] = {0xFF, 0xCA, 0x00, 0x00, 0x00}; // Get Data Command
+    BYTE response[256];
+    DWORD responseLength = sizeof(response);
+
+    lReturn = SCardTransmit(
+        m_hCard,
+        SCARD_PCI_T1,
+        uidCommand,
+        sizeof(uidCommand),
+        NULL,
+        response,
+        &responseLength
+    );
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "APDU命令发送失败: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 检查响应
+    if (responseLength < 2) {
+        m_lastError = "无效的UID响应";
+        return E_FAIL;
+    }
+
+    // 提取UID（排除最后2个字节的状态字）
+    DWORD uidLength = responseLength - 2;
+    if (response[uidLength] == 0x90 && response[uidLength + 1] == 0x00) {
+        // 成功状态字
+        uid = ConvertToHex(response, uidLength);
+        return S_OK;
+    } else {
+        m_lastError = "读取UID失败，状态字: " + ConvertToHex(&response[uidLength], 2);
+        return E_FAIL;
+    }
+}
+
+HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
+    if (m_hCard == NULL) {
+        HRESULT hr = ConnectToCard();
+        if (FAILED(hr)) {
+            return hr;
+        }
+    }
+
+    // 首先读取UID
+    std::string uid;
+    HRESULT hr = ReadCardUID(uid);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    // 获取卡片状态信息
+    DWORD dwAtrLen = 32;
+    BYTE pbAtr[32];
+    DWORD dwState, dwProtocol;
+
+    LONG lReturn = SCardStatus(m_hCard, NULL, NULL, &dwState, &dwProtocol, pbAtr, &dwAtrLen);
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取卡片状态: " + GetPCSCErrorString(lReturn);
+        return E_FAIL;
+    }
+
+    // 填充卡片信息
+    ZeroMemory(&m_lastCardInfo, sizeof(m_lastCardInfo));
+    
+    // 设置UID
+    if (uid.length() < sizeof(m_lastCardInfo.uid)) {
+        strcpy_s(m_lastCardInfo.uid, sizeof(m_lastCardInfo.uid), uid.c_str());
+    }
+
+    // 设置时间戳
+    SYSTEMTIME st = GetCurrentSystemTime();
+    m_lastCardInfo.timestamp = st;
+
+    // 根据ATR判断卡片类型
+    if (dwAtrLen > 0) {
+        std::string atr = ConvertToHex(pbAtr, dwAtrLen);
+        
+        // 这里可以根据ATR来判断卡片类型
+        // 简化处理，假设为MIFARE卡片
+        if (dwAtrLen >= 4 && pbAtr[0] == 0x3B) {
+            m_lastCardInfo.type = NFC_CARD_MIFARE;
+            m_lastCardInfo.typeName = "MIFARE";
+            m_lastCardInfo.size = 1024; // 1KB
+        } else {
+            m_lastCardInfo.type = NFC_CARD_UNKNOWN;
+            m_lastCardInfo.typeName = "Unknown";
+            m_lastCardInfo.size = 0;
+        }
+    }
+
+    cardInfo = m_lastCardInfo;
+    return S_OK;
+}
+
+HRESULT NFCManager::WaitForCard(DWORD timeoutMs) {
+    DWORD startTime = GetTickCount();
+    
+    while (GetTickCount() - startTime < timeoutMs) {
+        bool cardPresent = false;
+        HRESULT hr = IsCardPresent(cardPresent);
+        
+        if (SUCCEEDED(hr) && cardPresent) {
+            return S_OK;
+        }
+        
+        // 等待100ms后重试
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+}
+
+std::string NFCManager::GetLastErrorMessage() {
+    return m_lastError;
+}
+
+void NFCManager::SetDebugMode(bool enable) {
+    m_bDebugMode = enable;
+}
+
+// 测试PCSC功能
+bool NFCManager::TestPCSC() {
+    if (!m_bInitialized) {
+        HRESULT hr = Initialize();
+        if (FAILED(hr)) {
+            return false;
+        }
+    }
+
+    // 检查读卡器
+    if (m_readers.empty()) {
+        m_lastError = "未找到可用的NFC读卡器";
+        return false;
+    }
+
+    // 测试卡片检测
+    bool cardPresent = false;
+    HRESULT hr = IsCardPresent(cardPresent);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    if (cardPresent) {
+        // 尝试读取卡片信息
+        NFCCardInfo cardInfo;
+        hr = GetCardInfo(cardInfo);
+        if (SUCCEEDED(hr)) {
+            if (m_bDebugMode) {
+                std::cout << "卡片检测成功: " << cardInfo.uid << std::endl;
+                std::cout << "卡片类型: " << cardInfo.typeName << std::endl;
+            }
+            return true;
+        }
+    }
+
+    return true;
 }
