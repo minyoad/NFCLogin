@@ -75,4 +75,3 @@ std::wstring GetUserFullName(const std::wstring& username);
 bool ValidateUsername(const std::wstring& username);
 bool ValidatePassword(const std::wstring& password);
 bool ValidateNFCCardUID(const std::string& uid);
-std::wstring GetCurrentTimestamp();

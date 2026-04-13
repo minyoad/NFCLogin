@@ -1,4 +1,5 @@
 #include "AccountManager.h"
+#include "AccountManager.h"
 #include "NFCManager.h"
 #include <windows.h>
 #include <lm.h>
