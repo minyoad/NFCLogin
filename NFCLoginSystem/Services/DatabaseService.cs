@@ -22,17 +22,69 @@ namespace NFCLoginSystem.Services
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            // Simplified Users table to only map Username to NFCCardId
-            var createUsersTable = @"
-                CREATE TABLE IF NOT EXISTS Users (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    Username TEXT NOT NULL UNIQUE,
-                    NFCCardId TEXT UNIQUE
-                )";
+            // Check if the Users table exists and has the old schema (with PasswordHash)
+            var checkOldSchemaCmd = connection.CreateCommand();
+            checkOldSchemaCmd.CommandText = "PRAGMA table_info(Users)";
+            bool oldSchemaExists = false;
+            using (var reader = checkOldSchemaCmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    if (reader.GetString(1) == "PasswordHash")
+                    {
+                        oldSchemaExists = true;
+                        break;
+                    }
+                }
+            }
 
-            using var command = connection.CreateCommand();
-            command.CommandText = createUsersTable;
-            command.ExecuteNonQuery();
+            if (oldSchemaExists)
+            {
+                // Schema migration
+                var transaction = connection.BeginTransaction();
+                try
+                {
+                    var migrationCommands = new[]
+                    {
+                        "ALTER TABLE Users RENAME TO Users_old;",
+                        @"CREATE TABLE Users (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            Username TEXT NOT NULL UNIQUE,
+                            NFCCardId TEXT UNIQUE
+                        );",
+                        "INSERT INTO Users (Username, NFCCardId) SELECT Username, NFCCardId FROM Users_old;",
+                        "DROP TABLE Users_old;"
+                    };
+
+                    foreach (var cmdText in migrationCommands)
+                    {
+                        using var cmd = connection.CreateCommand();
+                        cmd.Transaction = transaction;
+                        cmd.CommandText = cmdText;
+                        cmd.ExecuteNonQuery();
+                    }
+                    transaction.Commit();
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
+            }
+            else
+            {
+                // Simplified Users table to only map Username to NFCCardId
+                var createUsersTable = @"
+                    CREATE TABLE IF NOT EXISTS Users (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Username TEXT NOT NULL UNIQUE,
+                        NFCCardId TEXT UNIQUE
+                    )";
+
+                using var command = connection.CreateCommand();
+                command.CommandText = createUsersTable;
+                command.ExecuteNonQuery();
+            }
 
             // The default admin is now a Windows account, but we might need a mapping if we bind a card to it.
             // We'll handle the mapping on demand instead of on initialization.
