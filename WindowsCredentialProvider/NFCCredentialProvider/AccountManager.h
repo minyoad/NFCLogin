@@ -8,6 +8,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "sqlite3.h"
+
 // 账户管理器类
 class AccountManager {
 public:
@@ -49,8 +51,8 @@ private:
     // 数据库文件路径
     std::wstring m_dbPath;
     
-    // 数据库连接句柄（简化实现，实际应该使用SQLite）
-    void* m_dbHandle;
+    // 数据库连接句柄
+    sqlite3* m_db;
     
     // 初始化数据库
     HRESULT InitializeDatabase();

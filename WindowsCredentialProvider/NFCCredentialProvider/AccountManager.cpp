@@ -1,156 +1,88 @@
 #include "AccountManager.h"
-#include "AccountManager.h"
-#include "NFCManager.h"
-#include <windows.h>
-#include <lm.h>
-#include <lmapibuf.h>
-#include <wincred.h>
 #include <shlobj.h>
-#include <iomanip>
+#include <stdexcept>
 
-#pragma comment(lib, "netapi32.lib")
-#pragma comment(lib, "advapi32.lib")
+// Helper to convert std::wstring to std::string
+std::string wstring_to_string(const std::wstring& wstr) {
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
+}
 
-AccountManager::AccountManager() : m_dbHandle(nullptr) {
+// Helper to convert std::string to std::wstring
+std::wstring string_to_wstring(const std::string& str) {
+    if (str.empty()) return std::wstring();
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+    return wstrTo;
+}
+
+AccountManager::AccountManager() : m_db(nullptr) {
+    InitializeDatabase();
 }
 
 AccountManager::~AccountManager() {
-    if (m_dbHandle) {
-        // 关闭数据库连接
-        m_dbHandle = nullptr;
+    if (m_db) {
+        sqlite3_close(m_db);
     }
 }
 
-HRESULT AccountManager::Initialize() {
-    // 获取本地应用数据路径
+void AccountManager::InitializeDatabase() {
     wchar_t appDataPath[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
-        m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\user.db";
+        m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\users.db";
         
-        // 确保目录存在
-        std::wstring dirPath = m_dbPath.substr(0, m_dbPath.find_last_of(L"\\"));
-        CreateDirectoryW(dirPath.c_str(), nullptr);
-        
-        return InitializeDatabase();
+        // The C# application is responsible for creating the directory and the database file.
+        // Here, we just try to open it.
+        int rc = sqlite3_open16(m_dbPath.c_str(), &m_db);
+        if (rc != SQLITE_OK) {
+            // Log the error, but don't throw, as the DB might not exist yet,
+            // which is not a critical failure for the provider itself.
+            // In a real-world scenario, you'd have more robust error logging.
+            sqlite3_close(m_db);
+            m_db = nullptr;
+        }
     }
-    
-    return E_FAIL;
 }
 
-HRESULT AccountManager::InitializeDatabase() {
-    // 这里应该初始化SQLite数据库
-    // 现在创建简单的文件存储
-    std::wofstream file(m_dbPath);
-    if (file.is_open()) {
-        file << L"# NFC Login Account Database" << std::endl;
-        file.close();
-        return S_OK;
+std::wstring AccountManager::FindUserByNFCCardUID(const std::wstring& uid) {
+    if (!m_db) {
+        return L"";
     }
-    
-    return E_FAIL;
-}
 
-HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstring& username) {
-    if (uid.empty()) {
-        return E_INVALIDARG;
-    }
+    sqlite3_stmt* stmt = nullptr;
+    std::wstring username = L"";
+
+    const char* sql = "SELECT Username FROM Users WHERE NFCCardId = ? AND IsActive = 1";
     
-    // 从数据库查找用户
-    // 简化实现：从文件读取映射
-    std::wifstream file(m_dbPath);
-    if (file.is_open()) {
-        std::wstring line;
-        while (std::getline(file, line)) {
-            if (line.find(L"UID:") == 0) {
-                size_t uidStart = line.find(L":") + 1;
-                size_t uidEnd = line.find(L" ", uidStart);
-                std::wstring storedUID = line.substr(uidStart, uidEnd - uidStart);
-                
-                std::string storedUIDStr = WStringToString(storedUID);
-                if (storedUIDStr == uid) {
-                    size_t userStart = line.find(L"USER:") + 5;
-                    username = line.substr(userStart);
-                    file.close();
-                    return S_OK;
-                }
+    int rc = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr);
+    if (rc == SQLITE_OK) {
+        std::string uid_utf8 = wstring_to_string(uid);
+        sqlite3_bind_text(stmt, 1, uid_utf8.c_str(), -1, SQLITE_STATIC);
+
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char* result = sqlite3_column_text(stmt, 0);
+            if (result) {
+                username = string_to_wstring(reinterpret_cast<const char*>(result));
             }
         }
-        file.close();
     }
-    
-    return S_FALSE; // 未找到用户
+
+    sqlite3_finalize(stmt);
+    return username;
 }
 
-HRESULT AccountManager::ValidateLocalUserCredentials(const std::wstring& username, const std::wstring& password) {
-    if (username.empty() || password.empty()) {
-        return E_INVALIDARG;
-    }
-    
-    // 验证Windows本地用户凭据
-    HANDLE hToken = nullptr;
-    BOOL result = LogonUserW(
-        username.c_str(),
-        L".", // 本地计算机
-        password.c_str(),
-        LOGON32_LOGON_INTERACTIVE,
-        LOGON32_PROVIDER_DEFAULT,
-        &hToken
-    );
-    
-    if (result) {
-        CloseHandle(hToken);
-        return S_OK;
-    }
-    
-    return HRESULT_FROM_WIN32(GetLastError());
+// The C# application handles user validation and binding.
+// These methods are no longer needed here.
+bool AccountManager::ValidateUser(const std::wstring& username, const std::wstring& password) {
+    // This logic is now handled by the C# application and Windows itself.
+    return false; 
 }
 
-HRESULT AccountManager::CreateLocalUser(const std::wstring& username, const std::wstring& password, 
-                                      const std::wstring& fullName, const std::string& nfcCardUID) {
-    if (!ValidateUsername(username) || !ValidatePassword(password)) {
-        return E_INVALIDARG;
-    }
-    
-    // 检查用户是否已存在
-    bool exists = false;
-    HRESULT hr = UserExists(username, exists);
-    if (SUCCEEDED(hr) && exists) {
-        return HRESULT_FROM_WIN32(ERROR_USER_EXISTS);
-    }
-    
-    // 创建本地用户
-    USER_INFO_1 ui1 = {0};
-    ui1.usri1_name = const_cast<LPWSTR>(username.c_str());
-    ui1.usri1_password = const_cast<LPWSTR>(password.c_str());
-    ui1.usri1_priv = USER_PRIV_USER;
-    ui1.usri1_home_dir = nullptr;
-    ui1.usri1_comment = const_cast<LPWSTR>(L"NFC Login User");
-    ui1.usri1_flags = UF_NORMAL_ACCOUNT | UF_SCRIPT;
-    ui1.usri1_script_path = nullptr;
-    
-    DWORD dwError = 0;
-    NET_API_STATUS status = NetUserAdd(nullptr, 1, (LPBYTE)&ui1, &dwError);
-    
-    if (status == NERR_Success) {
-        // 设置用户全名
-        USER_INFO_1011 ui1011 = {0};
-        ui1011.usri1011_full_name = const_cast<LPWSTR>(fullName.c_str());
-        NetUserSetInfo(nullptr, username.c_str(), 1011, (LPBYTE)&ui1011, &dwError);
-        
-        // 绑定NFC卡
-        if (!nfcCardUID.empty()) {
-            hr = BindNFCCardToUser(username, nfcCardUID);
-        } else {
-            hr = S_OK;
-        }
-        
-        return hr;
-    }
-    
-    return HRESULT_FROM_WIN32(status);
-}
-
-HRESULT AccountManager::BindNFCCardToUser(const std::wstring& username, const std::string& nfcCardUID) {
+bool AccountManager::BindNFCCardToUser(const std::wstring& username, const std::wstring& uid) {
     if (!ValidateNFCCardUID(nfcCardUID)) {
         return E_INVALIDARG;
     }

@@ -38,6 +38,9 @@ namespace NFCLoginSystem.Forms
             // 
             this.dataGridViewUsers.AllowUserToAddRows = false;
             this.dataGridViewUsers.AllowUserToDeleteRows = false;
+            this.dataGridViewUsers.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.dataGridViewUsers.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             this.dataGridViewUsers.Location = new System.Drawing.Point(12, 12);
             this.dataGridViewUsers.Name = "dataGridViewUsers";
@@ -51,6 +54,7 @@ namespace NFCLoginSystem.Forms
             // 
             // groupBoxActions
             // 
+            this.groupBoxActions.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
             this.groupBoxActions.Controls.Add(this.btnAddUser);
             this.groupBoxActions.Controls.Add(this.btnEditUser);
             this.groupBoxActions.Controls.Add(this.btnDeleteUser);
@@ -124,22 +128,25 @@ namespace NFCLoginSystem.Forms
             // 
             // groupBoxSearch
             // 
+            this.groupBoxSearch.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
             this.groupBoxSearch.Controls.Add(this.txtSearch);
             this.groupBoxSearch.Controls.Add(this.lblSearch);
             this.groupBoxSearch.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.groupBoxSearch.Location = new System.Drawing.Point(430, 430);
+            this.groupBoxSearch.Location = new System.Drawing.Point(518, 430);
             this.groupBoxSearch.Name = "groupBoxSearch";
-            this.groupBoxSearch.Size = new System.Drawing.Size(300, 80);
+            this.groupBoxSearch.Size = new System.Drawing.Size(214, 80);
             this.groupBoxSearch.TabIndex = 2;
             this.groupBoxSearch.TabStop = false;
             this.groupBoxSearch.Text = "搜索用户";
             // 
             // txtSearch
             // 
+            this.txtSearch.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.txtSearch.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.txtSearch.Location = new System.Drawing.Point(80, 35);
             this.txtSearch.Name = "txtSearch";
-            this.txtSearch.Size = new System.Drawing.Size(200, 24);
+            this.txtSearch.Size = new System.Drawing.Size(128, 24);
             this.txtSearch.TabIndex = 1;
             this.txtSearch.TextChanged += new System.EventHandler(this.txtSearch_TextChanged);
             // 
@@ -155,6 +162,7 @@ namespace NFCLoginSystem.Forms
             // 
             // lblTotalUsers
             // 
+            this.lblTotalUsers.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
             this.lblTotalUsers.AutoSize = true;
             this.lblTotalUsers.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.lblTotalUsers.Location = new System.Drawing.Point(750, 440);
@@ -165,6 +173,7 @@ namespace NFCLoginSystem.Forms
             // 
             // btnClose
             // 
+            this.btnClose.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
             this.btnClose.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.btnClose.Location = new System.Drawing.Point(750, 480);
             this.btnClose.Name = "btnClose";

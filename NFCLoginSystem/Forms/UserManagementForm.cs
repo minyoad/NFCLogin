@@ -237,22 +237,31 @@ namespace NFCLoginSystem.Forms
                 string? cardId = bindingForm.CardId;
                 if (string.IsNullOrEmpty(cardId))
                 {
-                    MessageBox.Show("未能获取到NFC卡ID。", "绑定失败",
+                    MessageBox.Show("未能从绑定窗口获取到有效的NFC卡ID。请重试。", "绑定失败",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 
                 try
                 {
+                    // 检查该NFC卡是否已被其他用户绑定
+                    var existingUser = _databaseService.GetUserByNFCCardId(cardId);
+                    if (existingUser != null && existingUser.Id != selectedUser.Id)
+                    {
+                        MessageBox.Show($"此NFC卡已被用户 '{existingUser.Username}' 绑定。", "绑定失败",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
                     selectedUser.NFCCardId = cardId;
                     _databaseService.UpdateUser(selectedUser);
-                    MessageBox.Show("NFC卡绑定成功", "成功",
+                    MessageBox.Show("NFC卡绑定成功！", "成功",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     LoadUsers();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"绑定NFC卡失败: {ex.Message}", "错误",
+                    MessageBox.Show($"绑定NFC卡时发生意外错误: \n\n{ex.ToString()}", "严重错误",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
