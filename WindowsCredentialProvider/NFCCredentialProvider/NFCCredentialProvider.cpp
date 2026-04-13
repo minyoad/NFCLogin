@@ -9,6 +9,10 @@
 
 #define SZ_CLSID_NFCCredentialProvider L"{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"
 
+// Forward declarations
+void LogMessage(const char* format, ...);
+const char* GuidToString(const GUID& guid);
+
 // {7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}
 const GUID CLSID_NFCCredentialProvider =
 { 0x7a8a8f2e, 0x4c3d, 0x4f1b, { 0x9e, 0x2a, 0x3c, 0x4d, 0x5f, 0x6a, 0x7b, 0x8c } };
@@ -302,7 +306,6 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDEN
 #define PROVIDER_VERSION "1.0.2" // 版本号提升
 
 // 将日志消息写入 C:\temp\nfc_provider.log
-void LogMessage(const char* message);
 
 // DLL导出函数
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv) {
