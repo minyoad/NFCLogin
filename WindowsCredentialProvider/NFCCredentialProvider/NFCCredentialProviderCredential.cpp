@@ -13,6 +13,8 @@
 #include <iomanip>
 #include <vector>
 
+#pragma comment(lib, "Secur32.lib")
+
 // 字段ID定义
 enum FIELDS {
     FIELD_TILE_IMAGE = 0,
@@ -380,6 +382,11 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetComboBoxValueCount(DWORD dwFi
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::GetComboBoxValueAt(DWORD dwFieldID, DWORD dwItem, PWSTR *ppszItem) {
+    return E_NOTIMPL;
+}
+
+IFACEMETHODIMP NFCCredentialProviderCredential::GetCheckboxValue(DWORD dwFieldID, BOOL* pbChecked, PWSTR* ppszLabel)
+{
     return E_NOTIMPL;
 }
 

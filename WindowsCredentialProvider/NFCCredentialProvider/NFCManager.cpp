@@ -48,6 +48,11 @@ bool ValidateUIDFormat(const std::string& uid) {
     return true;
 }
 
+std::string NFCManager::GetPCSCErrorString(LONG errorCode)
+{
+    return std::string();
+}
+
 std::wstring StringToWString(const std::string& str) {
     if (str.empty()) return std::wstring();
     

@@ -5,6 +5,11 @@
 #include <strsafe.h>
 #include <iostream>
 
+// {7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}
+const GUID CLSID_NFCCredentialProvider =
+{ 0x7a8a8f2e, 0x4c3d, 0x4f1b, { 0x9e, 0x2a, 0x3c, 0x4d, 0x5f, 0x6a, 0x7b, 0x8c } };
+
+
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "advapi32.lib")
