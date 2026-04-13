@@ -23,6 +23,7 @@ namespace NFCLoginSystem.Forms
             this.btnEditUser = new System.Windows.Forms.Button();
             this.btnDeleteUser = new System.Windows.Forms.Button();
             this.btnRefresh = new System.Windows.Forms.Button();
+            this.btnBindNFC = new System.Windows.Forms.Button();
             this.groupBoxSearch = new System.Windows.Forms.GroupBox();
             this.txtSearch = new System.Windows.Forms.TextBox();
             this.lblSearch = new System.Windows.Forms.Label();
@@ -53,11 +54,12 @@ namespace NFCLoginSystem.Forms
             this.groupBoxActions.Controls.Add(this.btnAddUser);
             this.groupBoxActions.Controls.Add(this.btnEditUser);
             this.groupBoxActions.Controls.Add(this.btnDeleteUser);
+            this.groupBoxActions.Controls.Add(this.btnBindNFC);
             this.groupBoxActions.Controls.Add(this.btnRefresh);
             this.groupBoxActions.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.groupBoxActions.Location = new System.Drawing.Point(12, 430);
             this.groupBoxActions.Name = "groupBoxActions";
-            this.groupBoxActions.Size = new System.Drawing.Size(400, 80);
+            this.groupBoxActions.Size = new System.Drawing.Size(500, 80);
             this.groupBoxActions.TabIndex = 1;
             this.groupBoxActions.TabStop = false;
             this.groupBoxActions.Text = "用户操作";
@@ -97,10 +99,22 @@ namespace NFCLoginSystem.Forms
             this.btnDeleteUser.UseVisualStyleBackColor = true;
             this.btnDeleteUser.Click += new System.EventHandler(this.btnDeleteUser_Click);
             // 
+            // btnBindNFC
+            // 
+            this.btnBindNFC.Enabled = false;
+            this.btnBindNFC.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnBindNFC.Location = new System.Drawing.Point(300, 30);
+            this.btnBindNFC.Name = "btnBindNFC";
+            this.btnBindNFC.Size = new System.Drawing.Size(100, 30);
+            this.btnBindNFC.TabIndex = 4;
+            this.btnBindNFC.Text = "绑定NFC卡";
+            this.btnBindNFC.UseVisualStyleBackColor = true;
+            this.btnBindNFC.Click += new System.EventHandler(this.btnBindNFC_Click);
+            // 
             // btnRefresh
             // 
             this.btnRefresh.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnRefresh.Location = new System.Drawing.Point(300, 30);
+            this.btnRefresh.Location = new System.Drawing.Point(415, 30);
             this.btnRefresh.Name = "btnRefresh";
             this.btnRefresh.Size = new System.Drawing.Size(80, 30);
             this.btnRefresh.TabIndex = 3;
@@ -191,6 +205,7 @@ namespace NFCLoginSystem.Forms
         private System.Windows.Forms.Button btnEditUser;
         private System.Windows.Forms.Button btnDeleteUser;
         private System.Windows.Forms.Button btnRefresh;
+        private System.Windows.Forms.Button btnBindNFC;
         private System.Windows.Forms.GroupBox groupBoxSearch;
         private System.Windows.Forms.TextBox txtSearch;
         private System.Windows.Forms.Label lblSearch;

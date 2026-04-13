@@ -9,8 +9,7 @@ namespace NFCLoginSystem.Forms
     {
         private readonly DatabaseService _databaseService;
         private readonly AuthenticationService _authService;
-        private readonly NFCSerialService _nfcService;
-        private bool _nfcReading = false;
+        private NFCPCSCService? _nfcService;
 
         public LoginForm()
         {
@@ -18,38 +17,43 @@ namespace NFCLoginSystem.Forms
             
             _databaseService = new DatabaseService();
             _authService = new AuthenticationService(_databaseService);
-            _nfcService = new NFCSerialService();
+            
+            try
+            {
+                _nfcService = new NFCPCSCService();
+                SetupNFCService();
+                _nfcService.StartMonitoring();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"NFC服务初始化失败: {ex.Message}", "错误", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                lblNFCStatus.Text = "NFC服务不可用";
+                lblNFCStatus.ForeColor = Color.Red;
+            }
             
             // 设置默认图像以避免空引用异常
             pictureBoxLogo.Image = SystemIcons.Information.ToBitmap();
-            
-            SetupNFCService();
-            LoadAvailablePorts();
         }
 
         private void SetupNFCService()
         {
+            if (_nfcService == null) return;
             _nfcService.CardDetected += OnNFCCardDetected;
             _nfcService.ErrorOccurred += OnNFCError;
+            _nfcService.ReaderStatusChanged += OnReaderStatusChanged;
         }
 
-        private void LoadAvailablePorts()
+        private void OnReaderStatusChanged(object? sender, string status)
         {
-            try
+            if (InvokeRequired)
             {
-                var ports = _nfcService.GetAvailablePorts();
-                cmbSerialPorts.Items.Clear();
-                cmbSerialPorts.Items.AddRange(ports);
-                
-                if (ports.Length > 0)
-                {
-                    cmbSerialPorts.SelectedIndex = 0;
-                }
+                Invoke(new Action(() => OnReaderStatusChanged(sender, status)));
+                return;
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"加载串口失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+
+            lblNFCStatus.Text = status;
+            lblNFCStatus.ForeColor = status.Contains("未连接") || status.Contains("不可用") ? Color.Red : Color.Green;
         }
 
         private void OnNFCCardDetected(object? sender, string cardId)
@@ -148,90 +152,6 @@ namespace NFCLoginSystem.Forms
             }
         }
 
-        private void btnConnectNFC_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                if (cmbSerialPorts.SelectedItem == null)
-                {
-                    MessageBox.Show("请选择串口", "提示", 
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-
-                string selectedPort = cmbSerialPorts.SelectedItem.ToString()!;
-                
-                if (_nfcReading)
-                {
-                    StopNFCReading();
-                }
-                else
-                {
-                    StartNFCReading(selectedPort);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"NFC连接失败: {ex.Message}", "错误", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void StartNFCReading(string portName)
-        {
-            try
-            {
-                _nfcService.Disconnect();
-                
-                var nfcService = new NFCSerialService(portName);
-                nfcService.CardDetected += OnNFCCardDetected;
-                nfcService.ErrorOccurred += OnNFCError;
-                
-                if (nfcService.Connect())
-                {
-                    _nfcReading = true;
-                    btnConnectNFC.Text = "断开NFC";
-                    lblNFCStatus.Text = "NFC读卡器已连接";
-                    lblNFCStatus.ForeColor = Color.Green;
-                    nfcService.StartReading();
-                }
-                else
-                {
-                    MessageBox.Show("无法连接到NFC读卡器", "错误", 
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"启动NFC读取失败: {ex.Message}", "错误", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void StopNFCReading()
-        {
-            try
-            {
-                _nfcReading = false;
-                _nfcService.StopReading();
-                _nfcService.Disconnect();
-                
-                btnConnectNFC.Text = "连接NFC";
-                lblNFCStatus.Text = "NFC读卡器未连接";
-                lblNFCStatus.ForeColor = Color.Red;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"停止NFC读取失败: {ex.Message}", "错误", 
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void btnRefreshPorts_Click(object sender, EventArgs e)
-        {
-            LoadAvailablePorts();
-        }
-
         private void txtPassword_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
@@ -245,13 +165,13 @@ namespace NFCLoginSystem.Forms
         {
             try
             {
-                if (_nfcReading)
+                if (_nfcService != null)
                 {
-                    StopNFCReading();
+                    _nfcService.StopMonitoring();
+                    _nfcService.Dispose();
                 }
-                _nfcService.Dispose();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // 忽略关闭时的错误
             }
@@ -259,24 +179,32 @@ namespace NFCLoginSystem.Forms
 
         private void btnUserManagement_Click(object sender, EventArgs e)
         {
+            // This button should only be visible/enabled after a successful login.
+            // We will assume the main form handles the visibility of this button.
+
+            // To access user management, a user must be logged in and be an admin.
+            if (_authService.CurrentUser == null)
+            {
+                MessageBox.Show("请先登录。", "提示", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (!_authService.CurrentUser.IsAdmin)
+            {
+                MessageBox.Show("只有管理员才能访问用户管理功能。", "权限不足", 
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             try
             {
-                // 显示登录对话框进行管理员身份验证
-                var loginForm = new LoginForm();
-                if (loginForm.ShowDialog() == DialogResult.OK)
-                {
-                    // 检查当前用户是否是管理员
-                    if (_authService.CurrentUser != null && _authService.CurrentUser.IsAdmin)
-                    {
-                        var userManagementForm = new UserManagementForm(_authService);
-                        userManagementForm.ShowDialog();
-                    }
-                    else
-                    {
-                        MessageBox.Show("只有管理员才能访问用户管理功能", "权限不足", 
-                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    }
-                }
+                // Hide the login form and show the user management form.
+                this.Hide();
+                var userManagementForm = new UserManagementForm(_authService);
+                userManagementForm.ShowDialog();
+                // After the user management form is closed, show the login form again.
+                this.Show();
             }
             catch (Exception ex)
             {

@@ -211,6 +211,51 @@ namespace NFCLoginSystem.Forms
         {
             btnEditUser.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
             btnDeleteUser.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
+            btnBindNFC.Enabled = dataGridViewUsers.SelectedRows.Count > 0;
+        }
+
+        private void btnBindNFC_Click(object sender, EventArgs e)
+        {
+            if (dataGridViewUsers.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("请选择要绑定NFC卡的用户", "提示",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var selectedUser = dataGridViewUsers.SelectedRows[0].DataBoundItem as User;
+            if (selectedUser == null)
+            {
+                MessageBox.Show("无法获取所选用户的信息。", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            var bindingForm = new BindNFCForm();
+            if (bindingForm.ShowDialog() == DialogResult.OK)
+            {
+                string? cardId = bindingForm.CardId;
+                if (string.IsNullOrEmpty(cardId))
+                {
+                    MessageBox.Show("未能获取到NFC卡ID。", "绑定失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                
+                try
+                {
+                    selectedUser.NFCCardId = cardId;
+                    _databaseService.UpdateUser(selectedUser);
+                    MessageBox.Show("NFC卡绑定成功", "成功",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    LoadUsers();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"绑定NFC卡失败: {ex.Message}", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
         private void dataGridViewUsers_CellDoubleClick(object sender, DataGridViewCellEventArgs e)

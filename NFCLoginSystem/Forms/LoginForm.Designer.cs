@@ -25,10 +25,6 @@ namespace NFCLoginSystem.Forms
             this.btnLogin = new System.Windows.Forms.Button();
             this.groupBoxNFC = new System.Windows.Forms.GroupBox();
             this.lblNFCStatus = new System.Windows.Forms.Label();
-            this.btnConnectNFC = new System.Windows.Forms.Button();
-            this.cmbSerialPorts = new System.Windows.Forms.ComboBox();
-            this.lblSerialPort = new System.Windows.Forms.Label();
-            this.btnRefreshPorts = new System.Windows.Forms.Button();
             this.pictureBoxLogo = new System.Windows.Forms.PictureBox();
             this.btnUserManagement = new System.Windows.Forms.Button();
             this.groupBoxNFC.SuspendLayout();
@@ -98,10 +94,6 @@ namespace NFCLoginSystem.Forms
             // groupBoxNFC
             // 
             this.groupBoxNFC.Controls.Add(this.lblNFCStatus);
-            this.groupBoxNFC.Controls.Add(this.btnConnectNFC);
-            this.groupBoxNFC.Controls.Add(this.cmbSerialPorts);
-            this.groupBoxNFC.Controls.Add(this.lblSerialPort);
-            this.groupBoxNFC.Controls.Add(this.btnRefreshPorts);
             this.groupBoxNFC.Font = new System.Drawing.Font("Microsoft Sans Serif", 10F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
             this.groupBoxNFC.Location = new System.Drawing.Point(50, 290);
             this.groupBoxNFC.Name = "groupBoxNFC";
@@ -120,48 +112,6 @@ namespace NFCLoginSystem.Forms
             this.lblNFCStatus.TabIndex = 4;
             this.lblNFCStatus.Text = "NFC读卡器未连接";
             this.lblNFCStatus.ForeColor = System.Drawing.Color.Red;
-            // 
-            // btnConnectNFC
-            // 
-            this.btnConnectNFC.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnConnectNFC.Location = new System.Drawing.Point(400, 35);
-            this.btnConnectNFC.Name = "btnConnectNFC";
-            this.btnConnectNFC.Size = new System.Drawing.Size(100, 30);
-            this.btnConnectNFC.TabIndex = 3;
-            this.btnConnectNFC.Text = "连接NFC";
-            this.btnConnectNFC.UseVisualStyleBackColor = true;
-            this.btnConnectNFC.Click += new System.EventHandler(this.btnConnectNFC_Click);
-            // 
-            // cmbSerialPorts
-            // 
-            this.cmbSerialPorts.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cmbSerialPorts.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.cmbSerialPorts.FormattingEnabled = true;
-            this.cmbSerialPorts.Location = new System.Drawing.Point(120, 35);
-            this.cmbSerialPorts.Name = "cmbSerialPorts";
-            this.cmbSerialPorts.Size = new System.Drawing.Size(150, 26);
-            this.cmbSerialPorts.TabIndex = 1;
-            // 
-            // lblSerialPort
-            // 
-            this.lblSerialPort.AutoSize = true;
-            this.lblSerialPort.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.lblSerialPort.Location = new System.Drawing.Point(20, 40);
-            this.lblSerialPort.Name = "lblSerialPort";
-            this.lblSerialPort.Size = new System.Drawing.Size(89, 18);
-            this.lblSerialPort.TabIndex = 0;
-            this.lblSerialPort.Text = "串口选择:";
-            // 
-            // btnRefreshPorts
-            // 
-            this.btnRefreshPorts.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btnRefreshPorts.Location = new System.Drawing.Point(290, 35);
-            this.btnRefreshPorts.Name = "btnRefreshPorts";
-            this.btnRefreshPorts.Size = new System.Drawing.Size(80, 30);
-            this.btnRefreshPorts.TabIndex = 2;
-            this.btnRefreshPorts.Text = "刷新";
-            this.btnRefreshPorts.UseVisualStyleBackColor = true;
-            this.btnRefreshPorts.Click += new System.EventHandler(this.btnRefreshPorts_Click);
             // 
             // pictureBoxLogo
             // 
@@ -219,10 +169,6 @@ namespace NFCLoginSystem.Forms
         private System.Windows.Forms.Button btnLogin;
         private System.Windows.Forms.GroupBox groupBoxNFC;
         private System.Windows.Forms.Label lblNFCStatus;
-        private System.Windows.Forms.Button btnConnectNFC;
-        private System.Windows.Forms.ComboBox cmbSerialPorts;
-        private System.Windows.Forms.Label lblSerialPort;
-        private System.Windows.Forms.Button btnRefreshPorts;
         private System.Windows.Forms.PictureBox pictureBoxLogo;
         private System.Windows.Forms.Button btnUserManagement;
     }
