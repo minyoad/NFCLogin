@@ -25,7 +25,7 @@ HRESULT AccountManager::Initialize() {
     // 获取本地应用数据路径
     wchar_t appDataPath[MAX_PATH];
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
-        m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\accounts.db";
+        m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\user.db";
         
         // 确保目录存在
         std::wstring dirPath = m_dbPath.substr(0, m_dbPath.find_last_of(L"\\"));
