@@ -167,7 +167,7 @@ HRESULT AccountManager::BindNFCCardToUser(const std::wstring& username, const st
     if (file.is_open()) {
         file << L"UID:" << StringToWString(nfcCardUID).c_str() 
              << L" USER:" << username.c_str() 
-             << L" TIMESTAMP:" << GetCurrentTimestamp().c_str() 
+             << L" TIMESTAMP:" << StringToWString(GetCurrentTimestamp()).c_str() 
              << std::endl;
         file.close();
         return S_OK;
@@ -359,20 +359,4 @@ bool ValidateNFCCardUID(const std::string& uid) {
     }
     
     return true;
-}
-
-std::wstring GetCurrentTimestamp() {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    
-    std::wstringstream ss;
-    ss << std::setfill(L'0') 
-       << std::setw(4) << st.wYear << L"-"
-       << std::setw(2) << st.wMonth << L"-"
-       << std::setw(2) << st.wDay << L" "
-       << std::setw(2) << st.wHour << L":"
-       << std::setw(2) << st.wMinute << L":"
-       << std::setw(2) << st.wSecond;
-    
-    return ss.str();
 }
