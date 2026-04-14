@@ -3,6 +3,9 @@
 #include <lm.h>
 #include <stdexcept>
 
+// Forward declaration for logging function from NFCCredentialProvider.cpp
+void LogMessage(const char* format, ...);
+
 #pragma comment(lib, "netapi32.lib")
 
 // Helper to convert std::wstring to std::string
@@ -46,18 +49,30 @@ HRESULT AccountManager::InitializeDatabase() {
 
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
+        LogMessage("Failed to get Local AppData path.");
         return E_FAIL;
     }
 
-    m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin\\users.db";
+    m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin";
+    
+    // Create the directory if it doesn't exist
+    if (!CreateDirectoryW(m_dbPath.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        LogMessage("Failed to create directory: %ls. Error: %d", m_dbPath.c_str(), GetLastError());
+        return E_FAIL;
+    }
+
+    m_dbPath += L"\\users.db";
+    LogMessage("Database path: %ls", m_dbPath.c_str());
     
     int rc = sqlite3_open16(m_dbPath.c_str(), &m_db);
     if (rc != SQLITE_OK) {
+        LogMessage("Failed to open database: %s", sqlite3_errmsg(m_db));
         sqlite3_close(m_db);
         m_db = nullptr;
         return E_FAIL;
     }
 
+    LogMessage("Database initialized successfully.");
     return S_OK;
 }
 
@@ -94,8 +109,28 @@ HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstrin
 
 HRESULT AccountManager::ValidateLocalUserCredentials(const std::wstring& username, const std::wstring& password)
 {
+    std::wstring domain = L".";
+    std::wstring user = username;
+
+    size_t slashPos = username.find(L'\\');
+    if (slashPos != std::wstring::npos) {
+        domain = username.substr(0, slashPos);
+        user = username.substr(slashPos + 1);
+    } else {
+        size_t atPos = username.find(L'@');
+        if (atPos != std::wstring::npos) {
+            // For UPN format (user@domain.com), LogonUserW expects domain to be the DNS domain name
+            // and username to be the full UPN.
+            // However, for simplicity and broader compatibility, we can split it,
+            // but it's often better to pass the full UPN as the username and NULL/L"." as the domain
+            // if the UPN is for a federated domain. Let's stick to a simpler split for now.
+            domain = username.substr(atPos + 1);
+            user = username; // Keep the full UPN as username for LogonUserW
+        }
+    }
+
     HANDLE hToken;
-    if (LogonUserW(username.c_str(), L".", password.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken))
+    if (LogonUserW(user.c_str(), domain.c_str(), password.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken))
     {
         CloseHandle(hToken);
         return S_OK;

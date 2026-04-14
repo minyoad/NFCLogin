@@ -241,6 +241,16 @@ HRESULT NFCCredentialProvider::_CreateCredential() {
     }
     m_pCredential->AddRef();
     
+    HRESULT hr = m_pCredential->Initialize(m_cpus, m_rgcpfd, 0);
+    if (FAILED(hr)) {
+        LogMessage("Failed to initialize credential, hr=0x%X", hr);
+        m_pCredential->Release();
+        m_pCredential = nullptr;
+        CoTaskMemFree(m_rgcpfd);
+        m_rgcpfd = nullptr;
+        return hr;
+    }
+    
     LogMessage("Credential and field descriptors created successfully");
     return S_OK;
 }

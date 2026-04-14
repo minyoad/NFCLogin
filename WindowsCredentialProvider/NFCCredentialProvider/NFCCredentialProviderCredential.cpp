@@ -210,6 +210,7 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetFieldState(DWORD dwFieldID,
 
 IFACEMETHODIMP NFCCredentialProviderCredential::GetStringValue(DWORD dwFieldID, PWSTR *ppsz) {
     HRESULT hr = E_INVALIDARG;
+    LogMessage("GetStringValue called for field %d", dwFieldID);
     
     if (dwFieldID < m_dwFieldCount && ppsz) {
         switch (dwFieldID) {
@@ -220,6 +221,7 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetStringValue(DWORD dwFieldID, 
                 {
                     std::wstring nfcStatus = L"NFC状态: ";
                     std::string uid = ReadNFCCardUID();
+                    LogMessage("ReadNFCCardUID returned: %s", uid.c_str());
                     if (!uid.empty()) {
                         std::wstring uidW(uid.begin(), uid.end());
                         nfcStatus += L"检测到卡片 - " + uidW;
@@ -470,6 +472,7 @@ HRESULT NFCCredentialProviderCredential::_GetStringValueInternal(DWORD dwFieldID
 }
 
 HRESULT NFCCredentialProviderCredential::_TryNFCLogin() {
+    LogMessage("_TryNFCLogin called");
     std::string uid = ReadNFCCardUID();
     if (!uid.empty()) {
         // 查找UID对应的用户
@@ -490,6 +493,13 @@ HRESULT NFCCredentialProviderCredential::_TryNFCLogin() {
     }
     
     return S_OK;
+}
+
+std::string NFCCredentialProviderCredential::ReadNFCCardUID() {
+    LogMessage("ReadNFCCardUID called");
+    // 在这里实现真正的NFC读卡逻辑
+    // 目前返回一个硬编码的UID用于测试
+    return "01020304";
 }
 
 bool NFCCredentialProviderCredential::_ValidateCredentials() {
