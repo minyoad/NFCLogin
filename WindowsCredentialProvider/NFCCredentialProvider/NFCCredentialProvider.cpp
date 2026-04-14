@@ -227,18 +227,33 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD 
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
     LogMessage("GetCredentialAt called with index %d", dwIndex);
-    if (dwIndex != 0 || !ppcpc) {
+    if (dwIndex >= 1 || !ppcpc) { // We only have one credential
         return E_INVALIDARG;
     }
-    
-    NFCCredentialProviderCredential *pCredential = new NFCCredentialProviderCredential();
-    if (!pCredential) {
-        return E_OUTOFMEMORY;
+
+    *ppcpc = nullptr;
+    HRESULT hr = E_UNEXPECTED;
+
+    // Create a new credential object.
+    NFCCredentialProviderCredential* pCredential = new NFCCredentialProviderCredential();
+    if (pCredential) {
+        // Initialize the credential object. Note: m_rgcpfd is not populated yet, this will be addressed later.
+        // For now, we pass nullptr and the credential will handle it.
+        hr = pCredential->Initialize(m_cpus, nullptr, 0);
+        if (SUCCEEDED(hr)) {
+            // Get the ICredentialProviderCredential interface.
+            hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+        }
+        
+        // If anything failed, release the credential object.
+        // If successful, the caller has a reference, so we don't release it here.
+        if (FAILED(hr)) {
+            pCredential->Release();
+        }
+    } else {
+        hr = E_OUTOFMEMORY;
     }
-    
-    HRESULT hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
-    pCredential->Release();
-    
+
     return hr;
 }
 

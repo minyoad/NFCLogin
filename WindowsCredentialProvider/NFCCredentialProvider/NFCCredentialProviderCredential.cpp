@@ -14,6 +14,10 @@
 #include <iomanip>
 #include <vector>
 
+// Forward declarations for logging functions from the other file
+void LogMessage(const char* format, ...);
+const char* GuidToString(const GUID& guid);
+
 #pragma comment(lib, "Secur32.lib")
 
 // 字段ID定义
@@ -50,28 +54,32 @@ NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
     }
 }
 
+// IUnknown实现
 IFACEMETHODIMP NFCCredentialProviderCredential::QueryInterface(REFIID riid, void **ppv) {
-    if (!ppv) return E_INVALIDARG;
-    *ppv = nullptr;
-
-    if (riid == IID_IUnknown) {
-        *ppv = static_cast<ICredentialProviderCredential2*>(this);
-    } else if (riid == IID_ICredentialProviderCredential || riid == IID_ICredentialProviderCredential2) {
-        *ppv = static_cast<ICredentialProviderCredential2*>(this);
+    LogMessage("NFCCredentialProviderCredential::QueryInterface asking for %s", GuidToString(riid));
+    static const QITAB qit[] = {
+        QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential),
+        QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential2),
+        {0}
+    };
+    HRESULT hr = QISearch(this, qit, riid, ppv);
+    if (SUCCEEDED(hr)) {
+        LogMessage("NFCCredentialProviderCredential::QueryInterface succeeded");
     } else {
-        return E_NOINTERFACE;
+        LogMessage("NFCCredentialProviderCredential::QueryInterface failed with hr=0x%X", hr);
     }
-
-    AddRef();
-    return S_OK;
+    return hr;
 }
 
 IFACEMETHODIMP_(ULONG) NFCCredentialProviderCredential::AddRef() {
-    return InterlockedIncrement(&m_cRef);
+    ULONG cRef = InterlockedIncrement(&m_cRef);
+    LogMessage("NFCCredentialProviderCredential::AddRef, m_cRef=%d", cRef);
+    return cRef;
 }
 
 IFACEMETHODIMP_(ULONG) NFCCredentialProviderCredential::Release() {
     ULONG cRef = InterlockedDecrement(&m_cRef);
+    LogMessage("NFCCredentialProviderCredential::Release, m_cRef=%d", cRef);
     if (cRef == 0) {
         delete this;
     }
