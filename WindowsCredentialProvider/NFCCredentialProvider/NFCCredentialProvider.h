@@ -90,13 +90,17 @@ public:
     virtual ~NFCCredentialProvider();
 
 private:
-    LONG m_cRef;                    // 引用计数
-    CREDENTIAL_PROVIDER_USAGE_SCENARIO m_cpus;  // 使用场景
-    CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR *m_rgcpfd;  // 字段描述符数组
-    DWORD m_dwFieldCount;           // 字段数量
-    ICredentialProviderCredential **m_rgpcpc;  // 凭据数组
-    DWORD m_dwCredentialCount;      // 凭据数量
-    ICredentialProviderEvents *m_pcpe;  // 事件接口
-    UINT_PTR m_upAdviseContext;     // 建议上下文
-    ICredentialProviderUserArray *m_pUserArray; // 用户数组
+    HRESULT _CreateCredential();
+
+private:
+    LONG m_cRef;
+    ICredentialProviderUserArray *m_pUserArray;
+    ICredentialProviderEvents *m_pcpe;
+    UINT_PTR m_upAdviseContext;
+    CREDENTIAL_PROVIDER_USAGE_SCENARIO m_cpus;
+    
+    // 凭据和字段描述符
+    NFCCredentialProviderCredential* m_pCredential;
+    CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* m_rgcpfd;
+    DWORD m_dwFieldCount;
 };

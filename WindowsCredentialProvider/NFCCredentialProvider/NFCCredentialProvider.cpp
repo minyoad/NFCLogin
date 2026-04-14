@@ -99,20 +99,25 @@ private:
 // NFCCredentialProvider实现
 
 NFCCredentialProvider::NFCCredentialProvider() : 
-    m_cRef(1), m_cpus(CPUS_LOGON), m_rgcpfd(nullptr), m_dwFieldCount(0), 
-    m_rgpcpc(nullptr), m_dwCredentialCount(0), m_pcpe(nullptr), m_upAdviseContext(0), m_pUserArray(nullptr) {
+    m_cRef(1), 
+    m_pUserArray(nullptr), 
+    m_pcpe(nullptr), 
+    m_upAdviseContext(0), 
+    m_cpus(CPUS_LOGON), 
+    m_pCredential(nullptr), 
+    m_rgcpfd(nullptr), 
+    m_dwFieldCount(0) {
     InterlockedIncrement(&g_cRefModule);
-    LogMessage("Provider created, constructor successful");
+    LogMessage("Provider created, constructor started");
+    _CreateCredential(); // 创建凭据和字段描述符
+    LogMessage("Provider created, constructor finished");
 }
 
 NFCCredentialProvider::~NFCCredentialProvider() {
-    if (m_rgpcpc) {
-        for (DWORD i = 0; i < m_dwCredentialCount; i++) {
-            if (m_rgpcpc[i]) {
-                m_rgpcpc[i]->Release();
-            }
-        }
-        CoTaskMemFree(m_rgpcpc);
+    LogMessage("Provider destroying");
+    if (m_pCredential) {
+        m_pCredential->Release();
+        m_pCredential = nullptr;
     }
     
     if (m_pcpe) {
@@ -121,12 +126,8 @@ NFCCredentialProvider::~NFCCredentialProvider() {
     }
     
     if (m_rgcpfd) {
-        for (DWORD i = 0; i < m_dwFieldCount; i++) {
-            if (m_rgcpfd[i].pszLabel) {
-                CoTaskMemFree(m_rgcpfd[i].pszLabel);
-            }
-        }
         CoTaskMemFree(m_rgcpfd);
+        m_rgcpfd = nullptr;
     }
 
     if (m_pUserArray) {
@@ -210,64 +211,57 @@ IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
     LogMessage("GetCredentialCount called");
-    if (pdwCount) {
-        *pdwCount = 1; // 提供一个凭据
+    *pdwCount = (m_pCredential != nullptr);
+    *pdwDefault = 0;
+    *pbAutoLogonWithDefault = FALSE;
+    return S_OK;
+}
+
+HRESULT NFCCredentialProvider::_CreateCredential() {
+    // 定义字段描述符
+    static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR rgcpfd[] = {
+        {0, CPFT_TILE_IMAGE, const_cast<wchar_t*>(L"Icon")},
+        {1, CPFT_EDIT_TEXT, const_cast<wchar_t*>(L"Username")},
+        {2, CPFT_PASSWORD_TEXT, const_cast<wchar_t*>(L"Password")},
+        {3, CPFT_SMALL_TEXT, const_cast<wchar_t*>(L"NFC Status")},
+        {4, CPFT_SUBMIT_BUTTON, const_cast<wchar_t*>(L"Submit")}
+    };
+
+    m_dwFieldCount = ARRAYSIZE(rgcpfd);
+    m_rgcpfd = (CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR*)CoTaskMemAlloc(sizeof(rgcpfd));
+    if (!m_rgcpfd) return E_OUTOFMEMORY;
+    memcpy(m_rgcpfd, rgcpfd, sizeof(rgcpfd));
+
+    // 创建凭据对象
+    m_pCredential = new NFCCredentialProviderCredential();
+    if (!m_pCredential) {
+        CoTaskMemFree(m_rgcpfd);
+        m_rgcpfd = nullptr;
+        return E_OUTOFMEMORY;
     }
+    m_pCredential->AddRef();
     
-    if (pdwDefault) {
-        *pdwDefault = 0; // 默认凭据索引
-    }
-    
-    if (pbAutoLogonWithDefault) {
-        *pbAutoLogonWithDefault = FALSE; // 不自动登录
-    }
-    
+    LogMessage("Credential and field descriptors created successfully");
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
     LogMessage("GetCredentialAt called with index %d", dwIndex);
-    if (dwIndex >= 1 || !ppcpc) { // We only have one credential
+    if (dwIndex != 0 || !ppcpc) {
         return E_INVALIDARG;
     }
-
-    *ppcpc = nullptr;
-    HRESULT hr = E_UNEXPECTED;
-
-    // Create a new credential object.
-    NFCCredentialProviderCredential* pCredential = new NFCCredentialProviderCredential();
-    if (pCredential) {
-        // Initialize the credential object. Note: m_rgcpfd is not populated yet, this will be addressed later.
-        // For now, we pass nullptr and the credential will handle it.
-        hr = pCredential->Initialize(m_cpus, nullptr, 0);
-        if (SUCCEEDED(hr)) {
-            // Get the ICredentialProviderCredential interface.
-            hr = pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
-        }
-        
-        // If anything failed, release the credential object.
-        // If successful, the caller has a reference, so we don't release it here.
-        if (FAILED(hr)) {
-            pCredential->Release();
-        }
-    } else {
-        hr = E_OUTOFMEMORY;
-    }
-
+    
+    HRESULT hr = m_pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
     return hr;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorCount(DWORD *pdwCount) {
-    LogMessage("GetFieldDescriptorCount called");
-    if (pdwCount) {
-        *pdwCount = 6; // 6个字段
-    }
+    *pdwCount = m_dwFieldCount;
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR **ppcpfd) {
-    LogMessage("GetFieldDescriptorAt called with index %d", dwIndex);
-    if (!ppcpfd || dwIndex >= 6) {
+    if (dwIndex >= m_dwFieldCount || !ppcpfd) {
         return E_INVALIDARG;
     }
     
@@ -275,52 +269,12 @@ IFACEMETHODIMP NFCCredentialProvider::GetFieldDescriptorAt(DWORD dwIndex, CREDEN
     if (!*ppcpfd) {
         return E_OUTOFMEMORY;
     }
-    
-    ZeroMemory(*ppcpfd, sizeof(CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR));
-    
-    switch (dwIndex) {
-    case 0: // 图标
-        (*ppcpfd)->dwFieldID = 0;
-        (*ppcpfd)->cpft = CPFT_TILE_IMAGE;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"TileImage");
-        break;
-    case 1: // 用户名
-        (*ppcpfd)->dwFieldID = 1;
-        (*ppcpfd)->cpft = CPFT_EDIT_TEXT;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Username");
-        break;
-    case 2: // 密码
-        (*ppcpfd)->dwFieldID = 2;
-        (*ppcpfd)->cpft = CPFT_PASSWORD_TEXT;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Password");
-        break;
-    case 3: // NFC标签
-        (*ppcpfd)->dwFieldID = 3;
-        (*ppcpfd)->cpft = CPFT_SMALL_TEXT;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"NFC Card");
-        break;
-    case 4: // NFC状态
-        (*ppcpfd)->dwFieldID = 4;
-        (*ppcpfd)->cpft = CPFT_LARGE_TEXT;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Waiting for NFC card...");
-        break;
-    case 5: // 提交按钮
-        (*ppcpfd)->dwFieldID = 5;
-        (*ppcpfd)->cpft = CPFT_SUBMIT_BUTTON;
-        (*ppcpfd)->pszLabel = (PWSTR)CoTaskMemAlloc(256 * sizeof(WCHAR));
-        StringCchCopyW((*ppcpfd)->pszLabel, 256, L"Log On");
-        break;
-    }
-    
-    (*ppcpfd)->guidFieldType = GUID_NULL;
-    (*ppcpfd)->dwFieldID = dwIndex;
-    
-    return S_OK;
+
+    (*ppcpfd)->dwFieldID = m_rgcpfd[dwIndex].dwFieldID;
+    (*ppcpfd)->cpft = m_rgcpfd[dwIndex].cpft;
+    (*ppcpfd)->guidFieldType = m_rgcpfd[dwIndex].guidFieldType;
+
+    return SHStrDupW(m_rgcpfd[dwIndex].pszLabel, &(*ppcpfd)->pszLabel);
 }
 
 // ICredentialProviderSetUserArray实现
@@ -338,7 +292,7 @@ IFACEMETHODIMP NFCCredentialProvider::SetUserArray(ICredentialProviderUserArray 
 
 #include <stdio.h>
 
-#define PROVIDER_VERSION "1.0.2" // 版本号提升
+#define PROVIDER_VERSION "1.0.3" // 版本号提升
 
 // 将日志消息写入 C:\temp\nfc_provider.log
 
