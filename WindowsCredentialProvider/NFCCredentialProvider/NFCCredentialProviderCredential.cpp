@@ -37,7 +37,12 @@ NFCCredentialProviderCredential::NFCCredentialProviderCredential() :
     m_dwFlags(0),
     m_dwFieldCount(FIELD_COUNT),
     m_pcpce(nullptr),
-    m_pAccountManager(nullptr) {
+    m_pAccountManager(nullptr),
+    m_pNFCManager(nullptr) {
+    m_pNFCManager = new NFCManager();
+    if (m_pNFCManager) {
+        m_pNFCManager->Initialize();
+    }
 }
 
 NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
@@ -51,6 +56,11 @@ NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
     if (m_pAccountManager) {
         delete m_pAccountManager;
         m_pAccountManager = nullptr;
+    }
+
+    if (m_pNFCManager) {
+        delete m_pNFCManager;
+        m_pNFCManager = nullptr;
     }
 }
 
@@ -497,9 +507,14 @@ HRESULT NFCCredentialProviderCredential::_TryNFCLogin() {
 
 std::string NFCCredentialProviderCredential::ReadNFCCardUID() {
     LogMessage("ReadNFCCardUID called");
-    // 在这里实现真正的NFC读卡逻辑
-    // 目前返回一个硬编码的UID用于测试
-    return "01020304";
+    std::string uid;
+    if (m_pNFCManager) {
+        HRESULT hr = m_pNFCManager->ReadCardUID(uid);
+        if (FAILED(hr)) {
+            LogMessage("Failed to read NFC card UID, hr=0x%X", hr);
+        }
+    }
+    return uid;
 }
 
 bool NFCCredentialProviderCredential::_ValidateCredentials() {

@@ -47,13 +47,7 @@ HRESULT AccountManager::InitializeDatabase() {
         return S_OK; // Already initialized
     }
 
-    wchar_t appDataPath[MAX_PATH];
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, appDataPath))) {
-        LogMessage("Failed to get Local AppData path.");
-        return E_FAIL;
-    }
-
-    m_dbPath = std::wstring(appDataPath) + L"\\NFCLogin";
+    m_dbPath = L"C:\\NFCLogin";
     
     // Create the directory if it doesn't exist
     if (!CreateDirectoryW(m_dbPath.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {

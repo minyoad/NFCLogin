@@ -6,7 +6,8 @@
 #include <security.h>
 #include <ntsecapi.h>
 #include <vector>
-#include <string>
+#include "AccountManager.h"
+#include "NFCManager.h"
 
 // 前向声明
 class AccountManager;
@@ -59,6 +60,7 @@ private:
     
     ICredentialProviderCredentialEvents *m_pcpce;  // 事件接口
     AccountManager *m_pAccountManager;  // 账户管理器
+    NFCManager *m_pNFCManager;          // NFC管理器
     
     // 字段值
     std::wstring m_strUsername;     // 用户名

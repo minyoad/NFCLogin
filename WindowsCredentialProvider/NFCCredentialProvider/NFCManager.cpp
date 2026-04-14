@@ -9,6 +9,9 @@
 
 #pragma comment(lib, "winscard.lib")
 
+// Forward declarations for logging functions
+void LogMessage(const char* format, ...);
+
 // 辅助函数实现 - 移到文件前面
 std::string ConvertToHex(const BYTE* data, size_t length) {
     std::stringstream ss;
@@ -143,12 +146,15 @@ HRESULT NFCManager::Initialize() {
 }
 
 HRESULT NFCManager::InitializePCSC() {
+    LogMessage("NFCManager: Initializing PCSC...");
     // 建立PCSC上下文
     LONG lReturn = SCardEstablishContext(SCARD_SCOPE_SYSTEM, NULL, NULL, &m_hContext);
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "无法建立PCSC上下文: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardEstablishContext failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         return E_FAIL;
     }
+    LogMessage("NFCManager: SCardEstablishContext successful.");
 
     // 获取读卡器列表
     DWORD dwReaders = SCARD_AUTOALLOCATE;
@@ -157,10 +163,12 @@ HRESULT NFCManager::InitializePCSC() {
     lReturn = SCardListReaders(m_hContext, NULL, (LPWSTR)&mszReaders, &dwReaders);
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "无法获取读卡器列表: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardListReaders failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         SCardReleaseContext(m_hContext);
         m_hContext = NULL;
         return E_FAIL;
     }
+    LogMessage("NFCManager: SCardListReaders successful.");
 
     // 解析读卡器名称
     m_readers.clear();
@@ -172,14 +180,17 @@ HRESULT NFCManager::InitializePCSC() {
 
     if (m_readers.empty()) {
         m_lastError = "未找到可用的NFC读卡器";
+        LogMessage("NFCManager: No NFC readers found.");
         SCardFreeMemory(m_hContext, mszReaders);
         SCardReleaseContext(m_hContext);
         m_hContext = NULL;
         return E_FAIL;
     }
+    LogMessage("NFCManager: Found %d readers.", m_readers.size());
 
     // 使用第一个读卡器
     m_readerName = m_readers[0];
+    LogMessage("NFCManager: Using reader: %S", m_readerName.c_str());
     SCardFreeMemory(m_hContext, mszReaders);
 
     return S_OK;
@@ -200,25 +211,31 @@ void NFCManager::CleanupPCSC() {
 }
 
 HRESULT NFCManager::ConnectToCard() {
+    LogMessage("NFCManager: Attempting to connect to card...");
     if (!m_bInitialized) {
+        LogMessage("NFCManager: Not initialized, calling Initialize().");
         HRESULT hr = Initialize();
         if (FAILED(hr)) {
+            LogMessage("NFCManager: Initialize() failed with hr=0x%X", hr);
             return hr;
         }
     }
 
     if (m_readerName.empty()) {
         m_lastError = "未选择读卡器";
+        LogMessage("NFCManager: No reader name specified.");
         return E_FAIL;
     }
 
     // 断开之前的连接
     if (m_hCard != NULL) {
+        LogMessage("NFCManager: Disconnecting previous card handle.");
         SCardDisconnect(m_hCard, SCARD_LEAVE_CARD);
         m_hCard = NULL;
     }
 
     // 连接到卡片
+    LogMessage("NFCManager: Calling SCardConnect for reader '%S'...", m_readerName.c_str());
     LONG lReturn = SCardConnect(
         m_hContext,
         m_readerName.c_str(),
@@ -230,9 +247,11 @@ HRESULT NFCManager::ConnectToCard() {
 
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "无法连接卡片: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardConnect failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         return E_FAIL;
     }
 
+    LogMessage("NFCManager: SCardConnect successful. Active protocol: %d", m_dwActiveProtocol);
     return S_OK;
 }
 
@@ -280,9 +299,12 @@ HRESULT NFCManager::IsCardPresent(bool& cardPresent) {
 }
 
 HRESULT NFCManager::ReadCardUID(std::string& uid) {
+    LogMessage("NFCManager: Reading card UID...");
     if (m_hCard == NULL) {
+        LogMessage("NFCManager: No card handle, attempting to connect...");
         HRESULT hr = ConnectToCard();
         if (FAILED(hr)) {
+            LogMessage("NFCManager: ConnectToCard failed with hr=0x%X", hr);
             return hr;
         }
     }
@@ -292,22 +314,28 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
     rgReaderStates[0].szReader = m_readerName.c_str();
     rgReaderStates[0].dwCurrentState = SCARD_STATE_UNAWARE;
 
+    LogMessage("NFCManager: Calling SCardGetStatusChange...");
     LONG lReturn = SCardGetStatusChange(m_hContext, 0, rgReaderStates, 1);
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "无法获取读卡器状态: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardGetStatusChange failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         return E_FAIL;
     }
+    LogMessage("NFCManager: SCardGetStatusChange successful.");
 
     // 获取ATR
     DWORD dwAtrLen = 32;
     BYTE pbAtr[32];
     DWORD dwState, dwProtocol;
 
+    LogMessage("NFCManager: Calling SCardStatus...");
     lReturn = SCardStatus(m_hCard, NULL, NULL, &dwState, &dwProtocol, pbAtr, &dwAtrLen);
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "无法获取卡片状态: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardStatus failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         return E_FAIL;
     }
+    LogMessage("NFCManager: SCardStatus successful. State: %d, Protocol: %d", dwState, dwProtocol);
 
     // 根据卡片类型发送相应的APDU命令
     // 这里实现MIFARE卡片的UID读取
@@ -315,9 +343,17 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
     BYTE response[256];
     DWORD responseLength = sizeof(response);
 
+    const SCARD_IO_REQUEST* pci;
+    if (dwProtocol == SCARD_PROTOCOL_T0) {
+        pci = SCARD_PCI_T0;
+    } else {
+        pci = SCARD_PCI_T1;
+    }
+
+    LogMessage("NFCManager: Calling SCardTransmit to get UID...");
     lReturn = SCardTransmit(
         m_hCard,
-        SCARD_PCI_T1,
+        pci,
         uidCommand,
         sizeof(uidCommand),
         NULL,
@@ -327,12 +363,15 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
 
     if (lReturn != SCARD_S_SUCCESS) {
         m_lastError = "APDU命令发送失败: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager: SCardTransmit failed with error 0x%X: %s", lReturn, m_lastError.c_str());
         return E_FAIL;
     }
+    LogMessage("NFCManager: SCardTransmit successful. Response length: %d", responseLength);
 
     // 检查响应
     if (responseLength < 2) {
         m_lastError = "无效的UID响应";
+        LogMessage("NFCManager: Invalid UID response, length < 2.");
         return E_FAIL;
     }
 
@@ -341,9 +380,11 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
     if (response[uidLength] == 0x90 && response[uidLength + 1] == 0x00) {
         // 成功状态字
         uid = ConvertToHex(response, uidLength);
+        LogMessage("NFCManager: Successfully read UID: %s", uid.c_str());
         return S_OK;
     } else {
         m_lastError = "读取UID失败，状态字: " + ConvertToHex(&response[uidLength], 2);
+        LogMessage("NFCManager: Failed to read UID. Status word: %s", ConvertToHex(&response[uidLength], 2).c_str());
         return E_FAIL;
     }
 }
