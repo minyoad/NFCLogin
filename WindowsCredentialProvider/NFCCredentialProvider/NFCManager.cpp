@@ -239,8 +239,8 @@ HRESULT NFCManager::ConnectToCard() {
     LONG lReturn = SCardConnect(
         m_hContext,
         m_readerName.c_str(),
-        SCARD_SHARE_DIRECT, // Changed from SCARD_SHARE_SHARED
-        SCARD_PROTOCOL_UNDEFINED, // Changed from SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1
+        SCARD_SHARE_SHARED,
+        SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
         &m_hCard,
         &m_dwActiveProtocol
     );
@@ -337,9 +337,9 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
     }
     LogMessage("NFCManager: SCardStatus successful. State: %d, Protocol: %d", dwState, dwProtocol);
 
-    // 根据卡片类型发送相应的APDU命令
-    // 这里实现MIFARE卡片的UID读取
-    BYTE uidCommand[] = {0xFF, 0xCA, 0x00, 0x00, 0x00}; // Get Data Command
+    // 使用与C#端相同的APDU命令格式
+    // Get Data Command - 让卡片发送所有可用数据
+    BYTE uidCommand[] = {0xFF, 0xCA, 0x00, 0x00, 0x00}; 
     BYTE response[256];
     DWORD responseLength = sizeof(response);
 
@@ -368,7 +368,7 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
     }
     LogMessage("NFCManager: SCardTransmit successful. Response length: %d", responseLength);
 
-    // 检查响应
+    // 简化状态检查 - 学习C#端的处理方式
     if (responseLength < 2) {
         m_lastError = "无效的UID响应";
         LogMessage("NFCManager: Invalid UID response, length < 2.");
@@ -377,12 +377,22 @@ HRESULT NFCManager::ReadCardUID(std::string& uid) {
 
     // 提取UID（排除最后2个字节的状态字）
     DWORD uidLength = responseLength - 2;
-    if (response[uidLength] == 0x90 && response[uidLength + 1] == 0x00) {
-        // 成功状态字
+    BYTE sw1 = response[uidLength];
+    BYTE sw2 = response[uidLength + 1];
+
+    // 学习C#端：只检查成功状态字和数据存在性
+    if (sw1 == 0x90 && sw2 == 0x00 && uidLength > 0) {
+        // 成功状态字 0x9000 且有数据
         uid = ConvertToHex(response, uidLength);
         LogMessage("NFCManager: Successfully read UID: %s", uid.c_str());
         return S_OK;
+    } else if (sw1 == 0x61 && sw2 == 0x1A) {
+        // 状态字 0x611A: 没有卡片或卡片已移除
+        m_lastError = "没有卡片或卡片已移除";
+        LogMessage("NFCManager: Card removed or not present (status word 0x611A).");
+        return E_FAIL;
     } else {
+        // 其他错误状态字
         m_lastError = "读取UID失败，状态字: " + ConvertToHex(&response[uidLength], 2);
         LogMessage("NFCManager: Failed to read UID. Status word: %s", ConvertToHex(&response[uidLength], 2).c_str());
         return E_FAIL;

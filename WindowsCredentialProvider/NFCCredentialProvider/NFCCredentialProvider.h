@@ -12,6 +12,9 @@
 #include <fstream>
 #include <string>
 
+#include "NFCManager.h"
+#include "AccountManager.h"
+
 // 前向声明
 class NFCCredentialProviderCredential;
 
@@ -23,49 +26,7 @@ DEFINE_GUID(CLSID_NFCCredentialProvider,
 // 字符串化CLSID
 #define SZ_CLSID_NFCCredentialProvider L"{7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}"
 
-// 日志记录函数
-inline void LogMessage(const std::string& message) {
-    std::ofstream log("C:\\NFCLogin\\logs\\provider.log", std::ios::app);
-    if (log.is_open()) {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
-        log << "[" << st.wYear << "-" << st.wMonth << "-" << st.wDay << " " 
-            << st.wHour << ":" << st.wMinute << ":" << st.wSecond << "] " 
-            << message << std::endl;
-        log.close();
-    }
-}
 
-// 读取NFC卡UID
-inline std::string ReadNFCCardUID() {
-    LogMessage("Attempting to read NFC card...");
-    
-    // 这里应该实现实际的NFC读取逻辑
-    // 现在返回模拟的UID用于测试
-    std::ifstream nfcFile("C:\\NFCLogin\\nfc_current_uid.txt");
-    if (nfcFile.is_open()) {
-        std::string uid;
-        std::getline(nfcFile, uid);
-        nfcFile.close();
-        
-        if (!uid.empty()) {
-            LogMessage("NFC card detected: " + uid);
-            return uid;
-        }
-    }
-    
-    LogMessage("No NFC card detected");
-    return "";
-}
-
-// 验证NFC卡
-inline bool ValidateNFCCard(const std::string& nfcUID) {
-    // 这里应该查询数据库验证NFC卡
-    LogMessage("Validating NFC card: " + nfcUID);
-    
-    // 模拟验证
-    return !nfcUID.empty() && nfcUID.length() >= 8;
-}
 
 // NFC凭证提供程序类
 class NFCCredentialProvider : public ICredentialProvider, public ICredentialProviderSetUserArray {
@@ -95,6 +56,11 @@ public:
 private:
     HRESULT _CreateCredential();
 
+    // Thread management functions
+    void _StartMonitorThread();
+    void _StopMonitorThread();
+    static DWORD WINAPI _MonitorThreadProc(LPVOID lpParam);
+
 private:
     LONG m_cRef;
     ICredentialProviderUserArray *m_pUserArray;
@@ -104,6 +70,18 @@ private:
     
     // 凭据和字段描述符
     NFCCredentialProviderCredential* m_pCredential;
+    std::vector<NFCCredentialProviderCredential*> m_rgpCredentials; // Vector to hold credential objects
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* m_rgcpfd;
     DWORD m_dwFieldCount;
+
+    // NFC, Account, and Threading
+    NFCManager m_nfcManager;
+    AccountManager m_accountManager;
+    HANDLE m_hMonitorThread;
+    BOOL m_bStopMonitor;
+
+    // Thread-safe state for sharing card info between threads
+    CRITICAL_SECTION m_critsecCardState;
+    std::string m_sCardUID;
+    std::wstring m_sCardUserName;
 };

@@ -1,5 +1,7 @@
 #include "NFCCredentialProvider.h"
 #include "NFCCredentialProviderCredential.h"
+#include "NFCManager.h"
+#include "AccountManager.h"
 #include <initguid.h>
 #include <credentialprovider.h>
 #include <shlwapi.h>
@@ -103,38 +105,33 @@ NFCCredentialProvider::NFCCredentialProvider() :
     m_pUserArray(nullptr), 
     m_pcpe(nullptr), 
     m_upAdviseContext(0), 
-    m_cpus(CPUS_LOGON), 
-    m_pCredential(nullptr), 
-    m_rgcpfd(nullptr), 
-    m_dwFieldCount(0) {
+    m_cpus(CPUS_INVALID),
+    m_hMonitorThread(nullptr),
+    m_bStopMonitor(FALSE)
+{
     InterlockedIncrement(&g_cRefModule);
     LogMessage("Provider created, constructor started");
-    _CreateCredential(); // 创建凭据和字段描述符
+    InitializeCriticalSection(&m_critsecCardState);
+    m_nfcManager.Initialize();
+    m_accountManager.Initialize();
     LogMessage("Provider created, constructor finished");
 }
 
 NFCCredentialProvider::~NFCCredentialProvider() {
     LogMessage("Provider destroying");
-    if (m_pCredential) {
-        m_pCredential->Release();
-        m_pCredential = nullptr;
-    }
-    
     if (m_pcpe) {
         m_pcpe->Release();
         m_pcpe = nullptr;
-    }
-    
-    if (m_rgcpfd) {
-        CoTaskMemFree(m_rgcpfd);
-        m_rgcpfd = nullptr;
     }
 
     if (m_pUserArray) {
         m_pUserArray->Release();
         m_pUserArray = nullptr;
     }
+
+    _StopMonitorThread(); // Ensure thread is stopped
     
+    DeleteCriticalSection(&m_critsecCardState);
     InterlockedDecrement(&g_cRefModule);
     LogMessage("Provider destroyed");
 }
@@ -183,6 +180,132 @@ IFACEMETHODIMP NFCCredentialProvider::SetSerialization(const CREDENTIAL_PROVIDER
     return E_NOTIMPL;
 }
 
+// Starts the NFC monitoring thread.
+void NFCCredentialProvider::_StartMonitorThread()
+{
+    if (m_hMonitorThread == nullptr)
+    {
+        m_bStopMonitor = FALSE;
+        m_hMonitorThread = CreateThread(nullptr, 0, _MonitorThreadProc, this, 0, nullptr);
+        if (m_hMonitorThread == nullptr)
+        {
+            LogMessage("Error: Failed to create monitor thread.");
+        }
+        else
+        {
+            LogMessage("Monitor thread started successfully.");
+        }
+    }
+}
+
+// Stops the NFC monitoring thread.
+void NFCCredentialProvider::_StopMonitorThread()
+{
+    if (m_hMonitorThread != nullptr)
+    {
+        LogMessage("Stopping monitor thread...");
+        m_bStopMonitor = TRUE;
+        if (WaitForSingleObject(m_hMonitorThread, 5000) == WAIT_TIMEOUT)
+        {
+            LogMessage("Warning: Monitor thread did not exit gracefully. Terminating.");
+            TerminateThread(m_hMonitorThread, -1);
+        }
+        CloseHandle(m_hMonitorThread);
+        m_hMonitorThread = nullptr;
+        LogMessage("Monitor thread stopped.");
+    }
+}
+
+// The background thread procedure that waits for an NFC card and triggers auto-logon.
+DWORD WINAPI NFCCredentialProvider::_MonitorThreadProc(LPVOID lpParam)
+{
+    NFCCredentialProvider* pThis = static_cast<NFCCredentialProvider*>(lpParam);
+    LogMessage("NFCCredentialProvider::_MonitorThreadProc started.");
+
+    std::string lastSeenUID = "";
+    int consecutiveReadFailures = 0;
+    const int MAX_CONSECUTIVE_FAILURES = 3;
+    const DWORD RETRY_DELAY_MS = 500; // 500ms delay between retries
+
+    while (!pThis->m_bStopMonitor)
+    {
+        // This is a blocking call that waits for a card to be inserted or removed.
+        if (pThis->m_nfcManager.WaitForCard(INFINITE) == S_OK)
+        {
+            std::string currentUID;
+            std::wstring currentUsername;
+            bool cardPresent = false;
+            bool shouldNotifyUI = false;
+
+            // A card event happened. Try to read the card.
+            if (SUCCEEDED(pThis->m_nfcManager.ReadCardUID(currentUID)) && !currentUID.empty())
+            {
+                // Successfully read the card
+                consecutiveReadFailures = 0; // Reset failure counter
+                cardPresent = true;
+                
+                // If it's a new card we haven't seen before, find its user.
+                if (currentUID != lastSeenUID)
+                {
+                    LogMessage("New card detected by monitor thread. UID: %s", currentUID.c_str());
+                    pThis->m_accountManager.FindUserByNFCCardUID(currentUID, currentUsername);
+                    lastSeenUID = currentUID;
+                    shouldNotifyUI = true; // Only notify on actual change
+                }
+                else
+                {
+                    // It's the same card, we already know the user.
+                    currentUsername = pThis->m_sCardUserName;
+                    // No UI notification needed for same card
+                }
+            }
+            else
+            {
+                // Failed to read card (got 611A or other error)
+                consecutiveReadFailures++;
+                LogMessage("Card read failed (attempt %d/%d). Card removed or unreadable.", 
+                          consecutiveReadFailures, MAX_CONSECUTIVE_FAILURES);
+                
+                if (consecutiveReadFailures >= MAX_CONSECUTIVE_FAILURES)
+                {
+                    // Only treat as "card removed" after multiple failures
+                    LogMessage("Card considered removed after %d consecutive failures.", MAX_CONSECUTIVE_FAILURES);
+                    lastSeenUID = "";
+                    shouldNotifyUI = true; // Notify UI that card is gone
+                    consecutiveReadFailures = 0; // Reset for next cycle
+                }
+                else
+                {
+                    // Still in retry phase, don't notify UI yet
+                    LogMessage("Retrying card read after delay...");
+                    Sleep(RETRY_DELAY_MS);
+                    continue; // Skip UI notification and state update
+                }
+            }
+
+            // Now, update the shared state safely.
+            EnterCriticalSection(&pThis->m_critsecCardState);
+            pThis->m_sCardUID = currentUID;
+            pThis->m_sCardUserName = currentUsername;
+            LeaveCriticalSection(&pThis->m_critsecCardState);
+
+            // Only notify the UI if something actually changed
+            if (shouldNotifyUI)
+            {
+                LogMessage("Triggering CredentialsChanged due to card state change.");
+                pThis->m_pcpe->CredentialsChanged(pThis->m_upAdviseContext);
+            }
+            else
+            {
+                LogMessage("No card state change detected, skipping UI notification.");
+            }
+        }
+    }
+
+    LogMessage("NFCCredentialProvider::_MonitorThreadProc exiting.");
+    return 0;
+}
+
 IFACEMETHODIMP NFCCredentialProvider::Advise(ICredentialProviderEvents *pcpe, UINT_PTR upAdviseContext) {
     LogMessage("Advise called");
     if (m_pcpe) {
@@ -195,11 +318,13 @@ IFACEMETHODIMP NFCCredentialProvider::Advise(ICredentialProviderEvents *pcpe, UI
     }
     
     m_upAdviseContext = upAdviseContext;
+    _StartMonitorThread(); // Start monitoring for NFC cards
     return S_OK;
 }
 
 IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
     LogMessage("UnAdvise called");
+    _StopMonitorThread(); // Stop monitoring
     if (m_pcpe) {
         m_pcpe->Release();
         m_pcpe = nullptr;
@@ -209,11 +334,55 @@ IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
     return S_OK;
 }
 
-IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD *pdwCount, DWORD *pdwDefault, BOOL *pbAutoLogonWithDefault) {
-    LogMessage("GetCredentialCount called");
-    *pdwCount = (m_pCredential != nullptr);
-    *pdwDefault = 0;
-    *pbAutoLogonWithDefault = FALSE;
+IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, BOOL* pbAutoLogon)
+{
+    LogMessage("NFCCredentialProvider::GetCredentialCount");
+
+    // Always release existing credentials before creating new ones.
+    for (auto& cred : m_rgpCredentials)
+    {
+        cred->Release();
+    }
+    m_rgpCredentials.clear();
+
+    *pdwDefault = (DWORD)-1; // CREDENTIAL_PROVIDER_INVALID_DEFAULT_CREDENTIAL
+    *pbAutoLogon = FALSE;    // Default to no auto-logon.
+
+    // Read the shared state safely.
+    EnterCriticalSection(&m_critsecCardState);
+    std::string uid = m_sCardUID;
+    std::wstring username = m_sCardUserName;
+    LeaveCriticalSection(&m_critsecCardState);
+
+    // If the monitor thread found a valid user, create a credential for auto-logon.
+    if (!username.empty())
+    {
+        LogMessage("GetCredentialCount: Found user '%S' from shared state. Creating credential and enabling auto-logon.", username.c_str());
+        
+        NFCCredentialProviderCredential* pCredential = nullptr;
+        if (SUCCEEDED(NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(IID_PPV_ARGS(&pCredential))))
+        {
+            pCredential->Initialize(this, username, uid, m_cpus);
+            m_rgpCredentials.push_back(pCredential);
+
+            *pdwDefault = 0;
+            *pbAutoLogon = TRUE;
+        }
+    }
+    else
+    {
+        // If no valid user, create a default tile prompting the user to swipe their card.
+        LogMessage("GetCredentialCount: No user for auto-logon. Creating a default, empty tile.");
+        NFCCredentialProviderCredential* pCredential = nullptr;
+        if (SUCCEEDED(NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(IID_PPV_ARGS(&pCredential))))
+        {
+            pCredential->Initialize(this, L"", "", m_cpus);
+            m_rgpCredentials.push_back(pCredential);
+        }
+    }
+
+    *pdwCount = (DWORD)m_rgpCredentials.size();
+    LogMessage("GetCredentialCount: Returning %d credentials. Auto-logon is %s.", *pdwCount, *pbAutoLogon ? "ENABLED" : "DISABLED");
     return S_OK;
 }
 
@@ -456,9 +625,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved) {
         break;
     case DLL_THREAD_ATTACH:
     case DLL_THREAD_DETACH:
-        break;
     case DLL_PROCESS_DETACH:
-        LogMessage("DLL_PROCESS_DETACH");
         break;
     }
     return TRUE;

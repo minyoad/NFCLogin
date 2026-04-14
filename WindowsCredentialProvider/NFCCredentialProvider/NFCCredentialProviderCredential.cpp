@@ -1,6 +1,5 @@
 #include "NFCCredentialProviderCredential.h"
 #include "NFCCredentialProvider.h"
-#include "AccountManager.h"
 #include <initguid.h>
 #include <windows.h>
 #include <strsafe.h>
@@ -37,32 +36,15 @@ NFCCredentialProviderCredential::NFCCredentialProviderCredential() :
     m_dwFlags(0),
     m_dwFieldCount(FIELD_COUNT),
     m_pcpce(nullptr),
-    m_pAccountManager(nullptr),
-    m_pNFCManager(nullptr) {
-    m_pNFCManager = new NFCManager();
-    if (m_pNFCManager) {
-        m_pNFCManager->Initialize();
-    }
+    m_fIsAutoLogon(false) {
 }
 
 NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
-    _StopMonitorThread(); // 停止监控线程
-
     if (m_rgcpfd) {
         for (DWORD i = 0; i < m_dwFieldCount; i++) {
             CoTaskMemFree(m_rgcpfd[i].pszLabel);
         }
         CoTaskMemFree(m_rgcpfd);
-    }
-    
-    if (m_pAccountManager) {
-        delete m_pAccountManager;
-        m_pAccountManager = nullptr;
-    }
-
-    if (m_pNFCManager) {
-        delete m_pNFCManager;
-        m_pNFCManager = nullptr;
     }
 }
 
@@ -72,6 +54,7 @@ IFACEMETHODIMP NFCCredentialProviderCredential::QueryInterface(REFIID riid, void
     static const QITAB qit[] = {
         QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential),
         QITABENT(NFCCredentialProviderCredential, ICredentialProviderCredential2),
+        QITABENT(NFCCredentialProviderCredential, NFCCredentialProviderCredential),
         {0}
     };
     HRESULT hr = QISearch(this, qit, riid, ppv);
@@ -107,21 +90,6 @@ HRESULT NFCCredentialProviderCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SC
     m_cpus = cpus;
     m_dwFlags = dwFlags;
     
-    // 创建账户管理器
-    if (!m_pAccountManager) {
-        m_pAccountManager = new AccountManager();
-        if (m_pAccountManager) {
-            hr = m_pAccountManager->Initialize();
-            if (FAILED(hr)) {
-                delete m_pAccountManager;
-                m_pAccountManager = nullptr;
-                return hr;
-            }
-        } else {
-            return E_OUTOFMEMORY;
-        }
-    }
-    
     // 复制字段描述符
     m_rgcpfd = (CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR*)CoTaskMemAlloc(sizeof(CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR) * m_dwFieldCount);
     if (m_rgcpfd) {
@@ -143,6 +111,20 @@ HRESULT NFCCredentialProviderCredential::Initialize(CREDENTIAL_PROVIDER_USAGE_SC
     return hr;
 }
 
+HRESULT NFCCredentialProviderCredential::Initialize(
+    NFCCredentialProvider* pProvider, 
+    const std::wstring& username, 
+    const std::string& uid, 
+    CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus)
+{
+    m_cpus = cpus;
+    m_strUsername = username;
+    m_fIsAutoLogon = !username.empty();
+    // We don't need to store the provider or UID in this class for now,
+    // as the auto-logon process is driven by the provider itself.
+    return S_OK;
+}
+
 // ICredentialProviderCredential实现
 IFACEMETHODIMP NFCCredentialProviderCredential::Advise(ICredentialProviderCredentialEvents *pcpce) {
     if (m_pcpce) {
@@ -156,9 +138,6 @@ IFACEMETHODIMP NFCCredentialProviderCredential::Advise(ICredentialProviderCreden
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::UnAdvise() {
-    // 停止监控线程
-    _StopMonitorThread();
-
     if (m_pcpce) {
         m_pcpce->Release();
         m_pcpce = nullptr;
@@ -168,7 +147,7 @@ IFACEMETHODIMP NFCCredentialProviderCredential::UnAdvise() {
 
 IFACEMETHODIMP NFCCredentialProviderCredential::SetSelected(BOOL *pbAutoLogon) {
     if (pbAutoLogon) {
-        *pbAutoLogon = FALSE; // 我们不希望Windows自动登录，而是由我们的异步逻辑触发
+        *pbAutoLogon = m_fIsAutoLogon;
     }
     
     return S_OK;
@@ -221,24 +200,34 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetFieldState(DWORD dwFieldID,
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::GetStringValue(DWORD dwFieldID, PWSTR *ppsz) {
-    HRESULT hr = E_INVALIDARG;
-    LogMessage("GetStringValue called for field %d", dwFieldID);
-    
-    if (dwFieldID < m_dwFieldCount && ppsz) {
-        switch (dwFieldID) {
-            case FIELD_USERNAME:
-                hr = SHStrDupW(m_strUsername.c_str(), ppsz);
-                break;
-            case FIELD_NFC_STATUS:
-                {
-                    // 默认显示等待刷卡，UI将由后台线程的通知来更新
-                    hr = SHStrDupW(L"请刷NFC卡登录...", ppsz);
-                }
-                break;
-            default:
-                hr = _GetStringValueInternal(dwFieldID, ppsz);
-                break;
+    HRESULT hr = E_UNEXPECTED;
+    *ppsz = nullptr;
+
+    switch (dwFieldID)
+    {
+    case FIELD_USERNAME:
+        // Return the username. If it's empty, return a single space
+        // to prevent the field from collapsing, which can cause UI glitches.
+        hr = SHStrDupW(m_strUsername.empty() ? L" " : m_strUsername.c_str(), ppsz);
+        break;
+    case FIELD_NFC_STATUS:
+        // This text is shown on the tile. It's updated by the background thread.
+        // We provide a default value here.
+        if (m_fIsAutoLogon) {
+            hr = SHStrDupW(L"卡已识别，准备自动登录...", ppsz);
+        } else {
+            hr = SHStrDupW(L"请刷NFC卡登录...", ppsz);
         }
+        break;
+    default:
+        // For other fields like the submit button, delegate to the internal helper.
+        hr = _GetStringValueInternal(dwFieldID, ppsz);
+        break;
+    }
+
+    if (FAILED(hr))
+    {
+        LogMessage("GetStringValue failed for field %d. HRESULT: 0x%X", dwFieldID, hr);
     }
     
     return hr;
@@ -300,89 +289,83 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROV
         return E_INVALIDARG;
     }
 
-    // 在序列化之前，尝试通过NFC获取凭据
-    _TryNFCLogin();
-
     *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
     ZeroMemory(pcpcs, sizeof(*pcpcs));
     *ppszOptionalStatusText = nullptr;
     *pcpsiOptionalStatusIcon = CPSI_NONE;
 
-    if (_ValidateCredentials()) {
-        KERB_INTERACTIVE_LOGON kil = {0};
-        kil.MessageType = KerbInteractiveLogon;
+    LogMessage("GetSerialization started.");
 
-        kil.UserName.Buffer = (PWSTR)CoTaskMemAlloc((m_strUsername.length() + 1) * sizeof(WCHAR));
-        if (kil.UserName.Buffer) {
-            StringCchCopyW(kil.UserName.Buffer, m_strUsername.length() + 1, m_strUsername.c_str());
-            kil.UserName.Length = (USHORT)(m_strUsername.length() * sizeof(WCHAR));
-            kil.UserName.MaximumLength = (USHORT)((m_strUsername.length() + 1) * sizeof(WCHAR));
-        }
-
-        kil.Password.Buffer = (PWSTR)CoTaskMemAlloc((m_strPassword.length() + 1) * sizeof(WCHAR));
-        if (kil.Password.Buffer) {
-            StringCchCopyW(kil.Password.Buffer, m_strPassword.length() + 1, m_strPassword.c_str());
-            kil.Password.Length = (USHORT)(m_strPassword.length() * sizeof(WCHAR));
-            kil.Password.MaximumLength = (USHORT)((m_strPassword.length() + 1) * sizeof(WCHAR));
-        }
-
-        kil.LogonDomainName.Buffer = nullptr;
-        kil.LogonDomainName.Length = 0;
-        kil.LogonDomainName.MaximumLength = 0;
-
-        ULONG ulAuthPackage;
-        LSA_STRING lsaszAuthPackage;
-        char authPackageName[] = "Kerberos";
-        lsaszAuthPackage.Buffer = authPackageName;
-        lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
-        lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
-
-        HANDLE hLsa;
-        NTSTATUS status = LsaConnectUntrusted(&hLsa);
-        if (status == 0) {
-            status = LsaLookupAuthenticationPackage(hLsa, &lsaszAuthPackage, &ulAuthPackage);
-            LsaDeregisterLogonProcess(hLsa);
-        }
-
-        if (status == 0) {
-            pcpcs->ulAuthenticationPackage = ulAuthPackage;
-            pcpcs->clsidCredentialProvider = CLSID_NFCCredentialProvider;
-
-            ULONG ulSize = sizeof(KERB_INTERACTIVE_LOGON) +
-                          kil.UserName.Length + sizeof(WCHAR) +
-                          kil.Password.Length + sizeof(WCHAR);
-
-            pcpcs->rgbSerialization = (BYTE*)CoTaskMemAlloc(ulSize);
-            if (pcpcs->rgbSerialization) {
-                BYTE* pbBuffer = pcpcs->rgbSerialization;
-
-                CopyMemory(pbBuffer, &kil, sizeof(KERB_INTERACTIVE_LOGON));
-                pbBuffer += sizeof(KERB_INTERACTIVE_LOGON);
-
-                if (kil.UserName.Buffer) {
-                    CopyMemory(pbBuffer, kil.UserName.Buffer, kil.UserName.Length + sizeof(WCHAR));
-                    CoTaskMemFree(kil.UserName.Buffer);
-                }
-
-                if (kil.Password.Buffer) {
-                    CopyMemory(pbBuffer, kil.Password.Buffer, kil.Password.Length + sizeof(WCHAR));
-                    CoTaskMemFree(kil.Password.Buffer);
-                }
-
-                pcpcs->cbSerialization = ulSize;
-                *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-            } else {
-                *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
-            }
-        } else {
-            if (kil.UserName.Buffer) CoTaskMemFree(kil.UserName.Buffer);
-            if (kil.Password.Buffer) CoTaskMemFree(kil.Password.Buffer);
-            *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
-        }
-    } else {
-        SHStrDupW(L"Invalid username or password", ppszOptionalStatusText);
+    // This function is called when the user clicks the login arrow.
+    // At this point, the background thread should have already detected the card
+    // and populated the user information. We just need to check if it was successful.
+    if (!m_fIsAutoLogon || m_strUsername.empty()) {
+        // If we don't have a valid user, we cannot proceed with login.
+        // This might happen if the user clicks before a card is read.
+        LogMessage("GetSerialization failed: Not in auto-logon state or username is empty.");
+        SHStrDupW(L"无法自动登录。请重试。", ppszOptionalStatusText);
         *pcpsiOptionalStatusIcon = CPSI_ERROR;
         *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
+        return S_OK; // Return S_OK to display the status message
+    }
+
+    // We have a valid user from the NFC card. Now, we proceed to package the credentials
+    // for the Local Security Authority (LSA).
+    // For this passwordless scenario, we use KerbInteractiveLogon with an empty password.
+    m_strPassword = L"";
+
+    KERB_INTERACTIVE_LOGON kil = {0};
+    kil.MessageType = KerbInteractiveLogon;
+
+    // Note: The string buffers for UserName, Domain, and Password must be part of the
+    // serialized buffer, not just pointers to our local strings.
+    kil.UserName.Length = (USHORT)(m_strUsername.length() * sizeof(WCHAR));
+    kil.UserName.MaximumLength = kil.UserName.Length;
+    kil.Password.Length = 0;
+    kil.Password.MaximumLength = 0;
+    kil.LogonDomainName.Length = 0;
+    kil.LogonDomainName.MaximumLength = 0;
+
+    ULONG ulAuthPackage;
+    LSA_STRING lsaszAuthPackage;
+    char authPackageName[] = "Kerberos";
+    lsaszAuthPackage.Buffer = authPackageName;
+    lsaszAuthPackage.Length = (USHORT)strlen(lsaszAuthPackage.Buffer);
+    lsaszAuthPackage.MaximumLength = (USHORT)(lsaszAuthPackage.Length + 1);
+
+    HANDLE hLsa;
+    NTSTATUS status = LsaConnectUntrusted(&hLsa);
+    if (SUCCEEDED(status)) {
+        status = LsaLookupAuthenticationPackage(hLsa, &lsaszAuthPackage, &ulAuthPackage);
+        LsaDeregisterLogonProcess(hLsa);
+    }
+
+    if (FAILED(status)) {
+        LogMessage("GetSerialization: LsaLookupAuthenticationPackage failed with status 0x%X", status);
+        return E_UNEXPECTED;
+    }
+
+    pcpcs->ulAuthenticationPackage = ulAuthPackage;
+    pcpcs->clsidCredentialProvider = CLSID_NFCCredentialProvider;
+
+    // Calculate the total size of the serialization buffer
+    ULONG ulSize = sizeof(KERB_INTERACTIVE_LOGON) + kil.UserName.Length;
+    pcpcs->rgbSerialization = (BYTE*)CoTaskMemAlloc(ulSize);
+    if (pcpcs->rgbSerialization) {
+        pcpcs->cbSerialization = ulSize;
+        BYTE* pbCurrent = pcpcs->rgbSerialization;
+
+        // Copy the KERB_INTERACTIVE_LOGON structure
+        CopyMemory(pbCurrent, &kil, sizeof(KERB_INTERACTIVE_LOGON));
+        pbCurrent += sizeof(KERB_INTERACTIVE_LOGON);
+
+        // Copy the username string
+        CopyMemory(pbCurrent, m_strUsername.c_str(), kil.UserName.Length);
+
+        *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
+        LogMessage("GetSerialization successful for user: %S", m_strUsername.c_str());
+    } else {
+        return E_OUTOFMEMORY;
     }
 
     return S_OK;
@@ -454,129 +437,42 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetUserSid(PWSTR *ppszSid) {
     return hr;
 }
 
-// Helper function implementation
-HRESULT NFCCredentialProviderCredential::_GetStringValueInternal(DWORD dwFieldID, PWSTR *ppsz) {
-    HRESULT hr = E_INVALIDARG;
-
-    if (dwFieldID < m_dwFieldCount && ppsz) {
-        switch (dwFieldID) {
-            case FIELD_USERNAME:
-                hr = SHStrDupW(L"Username", ppsz);
-                break;
-            case FIELD_PASSWORD:
-                hr = SHStrDupW(L"Password", ppsz);
-                break;
-            case FIELD_SUBMIT_BUTTON:
-                hr = SHStrDupW(L"Login", ppsz);
-                break;
-            default:
-                hr = SHStrDupW(L"", ppsz);
-                break;
-        }
-    }
-
-    return hr;
+HRESULT NFCCredentialProviderCredential::_GetStringValueInternal(DWORD dwFieldID, PWSTR* ppsz)
+{
+    // This is a helper for GetStringValue. For now, it does nothing.
+    // We can expand it later if other fields need to return strings.
+    return E_NOTIMPL;
 }
 
-HRESULT NFCCredentialProviderCredential::_TryNFCLogin() {
-    LogMessage("_TryNFCLogin called");
-    std::string uid = ReadNFCCardUID();
-    if (!uid.empty()) {
-        // 查找UID对应的用户
-        std::wstring username;
-        HRESULT hr = m_pAccountManager->FindUserByNFCCardUID(uid, username);
-        if (SUCCEEDED(hr) && !username.empty()) {
-            m_strUsername = username;
-            
-            // 更新UI
-            if (m_pcpce) {
-                m_pcpce->SetFieldString(this, FIELD_USERNAME, m_strUsername.c_str());
-            }
-            
-            LogMessage("NFC login successful for user: " + std::string(username.begin(), username.end()));
-        } else {
-            LogMessage("No user found for NFC card: " + uid);
-        }
-    }
-    
-    return S_OK;
+// New functions to manage auto-logon state
+void NFCCredentialProviderCredential::SetAutoLogonInfo(const std::wstring& username) {
+    m_strUsername = username;
+    m_fIsAutoLogon = true;
+    LogMessage("SetAutoLogonInfo for user: %S", username.c_str());
 }
 
-std::string NFCCredentialProviderCredential::ReadNFCCardUID() {
-    LogMessage("ReadNFCCardUID called");
-    std::string uid;
-    if (m_pNFCManager) {
-        HRESULT hr = m_pNFCManager->ReadCardUID(uid);
-        if (FAILED(hr)) {
-            LogMessage("Failed to read NFC card UID, hr=0x%X", hr);
-        }
-    }
-    return uid;
+void NFCCredentialProviderCredential::ClearAutoLogonInfo() {
+    m_strUsername.clear();
+    m_fIsAutoLogon = false;
+    LogMessage("ClearAutoLogonInfo called.");
 }
-
-bool NFCCredentialProviderCredential::_ValidateCredentials() {
-    if (m_strUsername.empty() || m_strPassword.empty()) {
-        return false;
-    }
-    
-    // 验证用户凭据
-    HRESULT hr = m_pAccountManager->ValidateLocalUserCredentials(m_strUsername, m_strPassword);
-    return SUCCEEDED(hr);
-}
-
-// 线程管理函数实现
-void NFCCredentialProviderCredential::_StartMonitorThread() {
-    LogMessage("NFCCredentialProviderCredential::_StartMonitorThread called");
-    if (m_hMonitorThread == NULL) {
-        m_bStopMonitor = FALSE;
-        m_hMonitorThread = CreateThread(NULL, 0, _MonitorThreadProc, this, 0, NULL);
-        if (m_hMonitorThread == NULL) {
-            LogMessage("Error creating monitor thread: %d", GetLastError());
-        } else {
-            LogMessage("Monitor thread started successfully.");
-        }
-    }
-}
-
-void NFCCredentialProviderCredential::_StopMonitorThread() {
-    LogMessage("NFCCredentialProviderCredential::_StopMonitorThread called");
-    if (m_hMonitorThread != NULL) {
-        m_bStopMonitor = TRUE;
-        if (WaitForSingleObject(m_hMonitorThread, 5000) == WAIT_TIMEOUT) {
-            LogMessage("Warning: Monitor thread did not exit gracefully. Terminating.");
-            TerminateThread(m_hMonitorThread, -1);
-        }
-        CloseHandle(m_hMonitorThread);
-        m_hMonitorThread = NULL;
-        LogMessage("Monitor thread stopped.");
-    }
-}
-
-DWORD WINAPI NFCCredentialProviderCredential::_MonitorThreadProc(LPVOID lpParam) {
-    NFCCredentialProviderCredential* pThis = static_cast<NFCCredentialProviderCredential*>(lpParam);
-    LogMessage("NFCCredentialProviderCredential::_MonitorThreadProc started.");
-
-    while (!pThis->m_bStopMonitor) {
-        if (pThis->m_pNFCManager) {
-            // 等待卡片出现，超时时间为1秒
-            HRESULT hr = pThis->m_pNFCManager->WaitForCard(1000); 
-            if (hr == S_OK) {
-                LogMessage("Card detected by monitor thread. Notifying UI.");
-                if (pThis->m_pcpce) {
-                    // 通知登录UI凭据已更改
-                    pThis->m_pcpce->CredentialsChanged();
-                }
-            }
-        }
-    }
-
-    LogMessage("NFCCredentialProviderCredential::_MonitorThreadProc exiting.");
-    return 0;
-}
-
 
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "shlwapi.lib")
 
-// 全局辅助函数 - 已移动到AccountManager类中
+HRESULT NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(REFIID riid, void** ppv)
+{
+    HRESULT hr;
+    NFCCredentialProviderCredential* pCredential = new (std::nothrow) NFCCredentialProviderCredential();
+    if (pCredential)
+    {
+        hr = pCredential->QueryInterface(riid, ppv);
+        pCredential->Release();
+    }
+    else
+    {
+        hr = E_OUTOFMEMORY;
+    }
+    return hr;
+}
