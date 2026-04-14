@@ -12,6 +12,9 @@
 #include <fstream>
 #include <string>
 
+// 前向声明
+class NFCCredentialProviderCredential;
+
 // CLSID定义
 // {7A8A8F2E-4C3D-4F1B-9E2A-3C4D5F6A7B8C}
 DEFINE_GUID(CLSID_NFCCredentialProvider, 
