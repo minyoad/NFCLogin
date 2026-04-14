@@ -6,6 +6,8 @@
 #include <security.h>
 #include <ntsecapi.h>
 #include <vector>
+#include <thread>
+#include <atomic>
 #include "AccountManager.h"
 #include "NFCManager.h"
 
@@ -61,6 +63,10 @@ private:
     ICredentialProviderCredentialEvents *m_pcpce;  // 事件接口
     AccountManager *m_pAccountManager;  // 账户管理器
     NFCManager *m_pNFCManager;          // NFC管理器
+
+    // 异步监控相关
+    HANDLE m_hMonitorThread;        // 监控线程句柄
+    BOOL m_bStopMonitor;            // 停止监控标志
     
     // 字段值
     std::wstring m_strUsername;     // 用户名
@@ -72,4 +78,9 @@ private:
     HRESULT _TryNFCLogin();
     bool _ValidateCredentials();
     std::string ReadNFCCardUID();
+
+    // 线程相关
+    void _StartMonitorThread();
+    void _StopMonitorThread();
+    static DWORD WINAPI _MonitorThreadProc(LPVOID lpParam);
 };

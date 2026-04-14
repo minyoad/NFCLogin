@@ -239,8 +239,8 @@ HRESULT NFCManager::ConnectToCard() {
     LONG lReturn = SCardConnect(
         m_hContext,
         m_readerName.c_str(),
-        SCARD_SHARE_SHARED,
-        SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1,
+        SCARD_SHARE_DIRECT, // Changed from SCARD_SHARE_SHARED
+        SCARD_PROTOCOL_UNDEFINED, // Changed from SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1
         &m_hCard,
         &m_dwActiveProtocol
     );
@@ -447,21 +447,39 @@ HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
 }
 
 HRESULT NFCManager::WaitForCard(DWORD timeoutMs) {
-    DWORD startTime = GetTickCount();
-    
-    while (GetTickCount() - startTime < timeoutMs) {
-        bool cardPresent = false;
-        HRESULT hr = IsCardPresent(cardPresent);
-        
-        if (SUCCEEDED(hr) && cardPresent) {
-            return S_OK;
-        }
-        
-        // 等待100ms后重试
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (!m_bInitialized || m_readerName.empty()) {
+        m_lastError = "NFC管理器未初始化或未找到读卡器";
+        LogMessage("NFCManager::WaitForCard - Not initialized or no reader.");
+        return E_FAIL;
     }
-    
-    return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+
+    SCARD_READERSTATE rgReaderStates[1];
+    rgReaderStates[0].szReader = m_readerName.c_str();
+    rgReaderStates[0].dwCurrentState = SCARD_STATE_UNAWARE;
+
+    // 调用 SCardGetStatusChange，它会阻塞直到状态改变或超时
+    LogMessage("NFCManager::WaitForCard - Calling SCardGetStatusChange with timeout %dms", timeoutMs);
+    LONG lReturn = SCardGetStatusChange(m_hContext, timeoutMs, rgReaderStates, 1);
+
+    if (lReturn == SCARD_E_TIMEOUT) {
+        // LogMessage("NFCManager::WaitForCard - Timed out.");
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+    }
+
+    if (lReturn != SCARD_S_SUCCESS) {
+        m_lastError = "无法获取读卡器状态: " + GetPCSCErrorString(lReturn);
+        LogMessage("NFCManager::WaitForCard - SCardGetStatusChange failed with error 0x%X: %s", lReturn, m_lastError.c_str());
+        return E_FAIL;
+    }
+
+    // 检查状态是否变为有卡
+    if ((rgReaderStates[0].dwEventState & SCARD_STATE_PRESENT)) {
+        LogMessage("NFCManager::WaitForCard - Card is present.");
+        return S_OK;
+    }
+
+    LogMessage("NFCManager::WaitForCard - Card is not present. Event state: 0x%X", rgReaderStates[0].dwEventState);
+    return E_FAIL; // 卡片不存在
 }
 
 std::string NFCManager::GetLastErrorMessage() {

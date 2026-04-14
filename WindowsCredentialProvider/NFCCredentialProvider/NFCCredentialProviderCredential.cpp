@@ -46,6 +46,8 @@ NFCCredentialProviderCredential::NFCCredentialProviderCredential() :
 }
 
 NFCCredentialProviderCredential::~NFCCredentialProviderCredential() {
+    _StopMonitorThread(); // 停止监控线程
+
     if (m_rgcpfd) {
         for (DWORD i = 0; i < m_dwFieldCount; i++) {
             CoTaskMemFree(m_rgcpfd[i].pszLabel);
@@ -154,6 +156,9 @@ IFACEMETHODIMP NFCCredentialProviderCredential::Advise(ICredentialProviderCreden
 }
 
 IFACEMETHODIMP NFCCredentialProviderCredential::UnAdvise() {
+    // 停止监控线程
+    _StopMonitorThread();
+
     if (m_pcpce) {
         m_pcpce->Release();
         m_pcpce = nullptr;
@@ -163,11 +168,8 @@ IFACEMETHODIMP NFCCredentialProviderCredential::UnAdvise() {
 
 IFACEMETHODIMP NFCCredentialProviderCredential::SetSelected(BOOL *pbAutoLogon) {
     if (pbAutoLogon) {
-        *pbAutoLogon = FALSE;
+        *pbAutoLogon = FALSE; // 我们不希望Windows自动登录，而是由我们的异步逻辑触发
     }
-    
-    // 尝试NFC登录
-    _TryNFCLogin();
     
     return S_OK;
 }
@@ -229,16 +231,8 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetStringValue(DWORD dwFieldID, 
                 break;
             case FIELD_NFC_STATUS:
                 {
-                    std::wstring nfcStatus = L"NFC状态: ";
-                    std::string uid = ReadNFCCardUID();
-                    LogMessage("ReadNFCCardUID returned: %s", uid.c_str());
-                    if (!uid.empty()) {
-                        std::wstring uidW(uid.begin(), uid.end());
-                        nfcStatus += L"检测到卡片 - " + uidW;
-                    } else {
-                        nfcStatus += L"等待刷卡...";
-                    }
-                    hr = SHStrDupW(nfcStatus.c_str(), ppsz);
+                    // 默认显示等待刷卡，UI将由后台线程的通知来更新
+                    hr = SHStrDupW(L"请刷NFC卡登录...", ppsz);
                 }
                 break;
             default:
@@ -305,6 +299,9 @@ IFACEMETHODIMP NFCCredentialProviderCredential::GetSerialization(CREDENTIAL_PROV
     if (!pcpgsr || !pcpcs || !ppszOptionalStatusText || !pcpsiOptionalStatusIcon) {
         return E_INVALIDARG;
     }
+
+    // 在序列化之前，尝试通过NFC获取凭据
+    _TryNFCLogin();
 
     *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
     ZeroMemory(pcpcs, sizeof(*pcpcs));
@@ -526,6 +523,57 @@ bool NFCCredentialProviderCredential::_ValidateCredentials() {
     HRESULT hr = m_pAccountManager->ValidateLocalUserCredentials(m_strUsername, m_strPassword);
     return SUCCEEDED(hr);
 }
+
+// 线程管理函数实现
+void NFCCredentialProviderCredential::_StartMonitorThread() {
+    LogMessage("NFCCredentialProviderCredential::_StartMonitorThread called");
+    if (m_hMonitorThread == NULL) {
+        m_bStopMonitor = FALSE;
+        m_hMonitorThread = CreateThread(NULL, 0, _MonitorThreadProc, this, 0, NULL);
+        if (m_hMonitorThread == NULL) {
+            LogMessage("Error creating monitor thread: %d", GetLastError());
+        } else {
+            LogMessage("Monitor thread started successfully.");
+        }
+    }
+}
+
+void NFCCredentialProviderCredential::_StopMonitorThread() {
+    LogMessage("NFCCredentialProviderCredential::_StopMonitorThread called");
+    if (m_hMonitorThread != NULL) {
+        m_bStopMonitor = TRUE;
+        if (WaitForSingleObject(m_hMonitorThread, 5000) == WAIT_TIMEOUT) {
+            LogMessage("Warning: Monitor thread did not exit gracefully. Terminating.");
+            TerminateThread(m_hMonitorThread, -1);
+        }
+        CloseHandle(m_hMonitorThread);
+        m_hMonitorThread = NULL;
+        LogMessage("Monitor thread stopped.");
+    }
+}
+
+DWORD WINAPI NFCCredentialProviderCredential::_MonitorThreadProc(LPVOID lpParam) {
+    NFCCredentialProviderCredential* pThis = static_cast<NFCCredentialProviderCredential*>(lpParam);
+    LogMessage("NFCCredentialProviderCredential::_MonitorThreadProc started.");
+
+    while (!pThis->m_bStopMonitor) {
+        if (pThis->m_pNFCManager) {
+            // 等待卡片出现，超时时间为1秒
+            HRESULT hr = pThis->m_pNFCManager->WaitForCard(1000); 
+            if (hr == S_OK) {
+                LogMessage("Card detected by monitor thread. Notifying UI.");
+                if (pThis->m_pcpce) {
+                    // 通知登录UI凭据已更改
+                    pThis->m_pcpce->CredentialsChanged();
+                }
+            }
+        }
+    }
+
+    LogMessage("NFCCredentialProviderCredential::_MonitorThreadProc exiting.");
+    return 0;
+}
+
 
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "advapi32.lib")
