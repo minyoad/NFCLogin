@@ -47,6 +47,8 @@ public:
     // 获取所有绑定的NFC卡
     HRESULT GetAllBoundNFCCards(std::map<std::string, std::wstring>& cardMappings);
 
+    const std::map<std::wstring, std::string>& GetUserToNFCMap() const;
+
 private:
     // 数据库文件路径
     std::wstring m_dbPath;

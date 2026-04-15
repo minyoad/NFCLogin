@@ -341,28 +341,7 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD* pdwCount, DWORD*
 {
     LogMessage("NFCCredentialProvider::GetCredentialCount");
 
-    // 处理待处理的UI通知（线程安全）
-    BOOL bShouldNotify = FALSE;
-    EnterCriticalSection(&m_critsecUINotify);
-    if (m_bPendingUINotify && m_pcpe)
-    {
-        bShouldNotify = TRUE;
-        m_bPendingUINotify = FALSE;
-    }
-    LeaveCriticalSection(&m_critsecUINotify);
-    
-    if (bShouldNotify)
-    {
-        LogMessage("GetCredentialCount: Processing pending UI notification.");
-        m_pcpe->CredentialsChanged(m_upAdviseContext);
-        // 立即返回，让系统重新调用我们
-        *pdwCount = 0;
-        *pdwDefault = (DWORD)-1;
-        *pbAutoLogon = FALSE;
-        return S_OK;
-    }
-
-    // Always release existing credentials before creating new ones.
+    // Clear existing credentials
     for (auto& cred : m_rgpCredentials)
     {
         cred->Release();
@@ -370,33 +349,17 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD* pdwCount, DWORD*
     m_rgpCredentials.clear();
 
     *pdwDefault = (DWORD)-1; // CREDENTIAL_PROVIDER_INVALID_DEFAULT_CREDENTIAL
-    *pbAutoLogon = FALSE;    // Default to no auto-logon.
+    *pbAutoLogon = FALSE;
 
-    // Read the shared state safely.
+    const auto& userMap = m_accountManager.GetUserToNFCMap();
+    
     EnterCriticalSection(&m_critsecCardState);
-    std::string uid = m_sCardUID;
-    std::wstring username = m_sCardUserName;
+    std::wstring activeUsername = m_sCardUserName;
     LeaveCriticalSection(&m_critsecCardState);
 
-    // If the monitor thread found a valid user, create a credential for auto-logon.
-    if (!username.empty())
+    if (userMap.empty())
     {
-        LogMessage("GetCredentialCount: Found user '%S' from shared state. Creating credential and enabling auto-logon.", username.c_str());
-        
-        NFCCredentialProviderCredential* pCredential = nullptr;
-        if (SUCCEEDED(NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(IID_PPV_ARGS(&pCredential))))
-        {
-            pCredential->Initialize(this, username, uid, m_cpus);
-            m_rgpCredentials.push_back(pCredential);
-
-            *pdwDefault = 0;
-            *pbAutoLogon = TRUE;
-        }
-    }
-    else
-    {
-        // If no valid user, create a default tile prompting the user to swipe their card.
-        LogMessage("GetCredentialCount: No user for auto-logon. Creating a default, empty tile.");
+        // No users in the database, create a default tile.
         NFCCredentialProviderCredential* pCredential = nullptr;
         if (SUCCEEDED(NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(IID_PPV_ARGS(&pCredential))))
         {
@@ -404,9 +367,34 @@ IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD* pdwCount, DWORD*
             m_rgpCredentials.push_back(pCredential);
         }
     }
+    else
+    {
+        // Create a tile for each user in the database.
+        DWORD credIndex = 0;
+        for (const auto& pair : userMap)
+        {
+            const std::wstring& username = pair.first;
+            const std::string& uid = pair.second;
+
+            NFCCredentialProviderCredential* pCredential = nullptr;
+            if (SUCCEEDED(NFCCredentialProviderCredential::NFCCredentialProviderCredential_CreateInstance(IID_PPV_ARGS(&pCredential))))
+            {
+                pCredential->Initialize(this, username, uid, m_cpus);
+                m_rgpCredentials.push_back(pCredential);
+
+                // If this user is the one who just swiped the card, set them as the default for auto-logon.
+                if (!activeUsername.empty() && username == activeUsername)
+                {
+                    *pdwDefault = credIndex;
+                    *pbAutoLogon = TRUE;
+                }
+            }
+            credIndex++;
+        }
+    }
 
     *pdwCount = (DWORD)m_rgpCredentials.size();
-    LogMessage("GetCredentialCount: Returning %d credentials. Auto-logon is %s.", *pdwCount, *pbAutoLogon ? "ENABLED" : "DISABLED");
+    LogMessage("GetCredentialCount: Returning %d credentials. Default index: %d. Auto-logon is %s.", *pdwCount, *pdwDefault, *pbAutoLogon ? "ENABLED" : "DISABLED");
     return S_OK;
 }
 
@@ -450,11 +438,11 @@ HRESULT NFCCredentialProvider::_CreateCredential() {
 
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential **ppcpc) {
     LogMessage("GetCredentialAt called with index %d", dwIndex);
-    if (dwIndex != 0 || !ppcpc) {
+    if (dwIndex >= m_rgpCredentials.size() || !ppcpc) {
         return E_INVALIDARG;
     }
     
-    HRESULT hr = m_pCredential->QueryInterface(IID_PPV_ARGS(ppcpc));
+    HRESULT hr = m_rgpCredentials[dwIndex]->QueryInterface(IID_PPV_ARGS(ppcpc));
     return hr;
 }
 

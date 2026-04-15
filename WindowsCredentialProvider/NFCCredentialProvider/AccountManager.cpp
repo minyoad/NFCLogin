@@ -38,8 +38,14 @@ AccountManager::~AccountManager() {
     }
 }
 
-HRESULT AccountManager::Initialize() {
-    return InitializeDatabase();
+HRESULT AccountManager::Initialize()
+{
+    HRESULT hr = InitializeDatabase();
+    if (SUCCEEDED(hr))
+    {
+        hr = LoadAccountMappings();
+    }
+    return hr;
 }
 
 HRESULT AccountManager::InitializeDatabase() {
@@ -251,6 +257,10 @@ HRESULT AccountManager::LoadAccountMappings()
 {
     LogMessage("LoadAccountMappings: Loading account mappings from database.");
     return S_OK;
+}
+
+const std::map<std::wstring, std::string>& AccountManager::GetUserToNFCMap() const {
+    return m_userToNFCMap;
 }
 
 HRESULT AccountManager::SaveAccountMappings()
