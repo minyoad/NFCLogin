@@ -49,7 +49,7 @@ public:
     HRESULT IsCardPresent(bool& cardPresent);
 
     // 等待卡片放置
-    HRESULT WaitForCard(DWORD timeoutMs = 5000);
+    HRESULT WaitForCard(SCARD_READERSTATE* rgReaderStates, DWORD timeoutMs);
 
     // 获取支持的卡片类型列表
     HRESULT GetSupportedCardTypes(std::vector<std::string>& cardTypes);
@@ -71,6 +71,9 @@ public:
 
     // 断开卡片连接
     HRESULT DisconnectFromCard();
+
+    // 获取读卡器名称
+    std::wstring GetReaderName() const { return m_readerName; }
 
 private:
     // 初始化PCSC资源

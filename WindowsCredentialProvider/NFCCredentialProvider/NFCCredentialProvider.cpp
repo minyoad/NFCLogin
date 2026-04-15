@@ -107,11 +107,13 @@ NFCCredentialProvider::NFCCredentialProvider() :
     m_upAdviseContext(0), 
     m_cpus(CPUS_INVALID),
     m_hMonitorThread(nullptr),
-    m_bStopMonitor(FALSE)
+    m_bStopMonitor(FALSE),
+    m_bPendingUINotify(FALSE)
 {
     InterlockedIncrement(&g_cRefModule);
     LogMessage("Provider created, constructor started");
     InitializeCriticalSection(&m_critsecCardState);
+    InitializeCriticalSection(&m_critsecUINotify);
     m_nfcManager.Initialize();
     m_accountManager.Initialize();
     LogMessage("Provider created, constructor finished");
@@ -132,6 +134,7 @@ NFCCredentialProvider::~NFCCredentialProvider() {
     _StopMonitorThread(); // Ensure thread is stopped
     
     DeleteCriticalSection(&m_critsecCardState);
+    DeleteCriticalSection(&m_critsecUINotify);
     InterlockedDecrement(&g_cRefModule);
     LogMessage("Provider destroyed");
 }
@@ -222,83 +225,83 @@ DWORD WINAPI NFCCredentialProvider::_MonitorThreadProc(LPVOID lpParam)
     NFCCredentialProvider* pThis = static_cast<NFCCredentialProvider*>(lpParam);
     LogMessage("NFCCredentialProvider::_MonitorThreadProc started.");
 
+    SCARD_READERSTATE readerState = { 0 };
+    const std::wstring readerName = pThis->m_nfcManager.GetReaderName();
+    readerState.szReader = readerName.c_str();
+    readerState.dwCurrentState = SCARD_STATE_UNAWARE;
+
     std::string lastSeenUID = "";
-    int consecutiveReadFailures = 0;
-    const int MAX_CONSECUTIVE_FAILURES = 3;
-    const DWORD RETRY_DELAY_MS = 500; // 500ms delay between retries
+    bool cardWasPresent = false;
 
     while (!pThis->m_bStopMonitor)
     {
-        // This is a blocking call that waits for a card to be inserted or removed.
-        if (pThis->m_nfcManager.WaitForCard(INFINITE) == S_OK)
-        {
-            std::string currentUID;
-            std::wstring currentUsername;
-            bool cardPresent = false;
-            bool shouldNotifyUI = false;
+        // This call will now block until the card state *changes* from the last known state.
+        HRESULT hr = pThis->m_nfcManager.WaitForCard(&readerState, INFINITE);
 
-            // A card event happened. Try to read the card.
+        // After the call, update the current state to the event state for the next iteration.
+        readerState.dwCurrentState = readerState.dwEventState;
+
+        bool cardIsPresent = (readerState.dwEventState & SCARD_STATE_PRESENT) != 0;
+
+        if (cardIsPresent && !cardWasPresent)
+        {
+            // Card was just inserted.
+            LogMessage("_MonitorThreadProc: Card inserted.");
+            std::string currentUID;
             if (SUCCEEDED(pThis->m_nfcManager.ReadCardUID(currentUID)) && !currentUID.empty())
             {
-                // Successfully read the card
-                consecutiveReadFailures = 0; // Reset failure counter
-                cardPresent = true;
-                
-                // If it's a new card we haven't seen before, find its user.
-                if (currentUID != lastSeenUID)
+                LogMessage("_MonitorThreadProc: Successfully read UID: %s", currentUID.c_str());
+                lastSeenUID = currentUID;
+
+                std::wstring currentUsername;
+                HRESULT hr = pThis->m_accountManager.FindUserByNFCCardUID(currentUID, currentUsername);
+                if (SUCCEEDED(hr) && !currentUsername.empty())
                 {
-                    LogMessage("New card detected by monitor thread. UID: %s", currentUID.c_str());
-                    pThis->m_accountManager.FindUserByNFCCardUID(currentUID, currentUsername);
-                    lastSeenUID = currentUID;
-                    shouldNotifyUI = true; // Only notify on actual change
+                    LogMessage("_MonitorThreadProc: Found user '%ls' for UID %s", currentUsername.c_str(), currentUID.c_str());
                 }
                 else
                 {
-                    // It's the same card, we already know the user.
-                    currentUsername = pThis->m_sCardUserName;
-                    // No UI notification needed for same card
+                    LogMessage("_MonitorThreadProc: No user found for UID %s. HRESULT: 0x%X", currentUID.c_str(), hr);
                 }
+
+                EnterCriticalSection(&pThis->m_critsecCardState);
+                pThis->m_sCardUID = currentUID;
+                pThis->m_sCardUserName = currentUsername;
+                LeaveCriticalSection(&pThis->m_critsecCardState);
+
+                LogMessage("_MonitorThreadProc: Setting UI notification for new card.");
+                EnterCriticalSection(&pThis->m_critsecUINotify);
+                pThis->m_bPendingUINotify = TRUE;
+                LeaveCriticalSection(&pThis->m_critsecUINotify);
             }
             else
             {
-                // Failed to read card (got 611A or other error)
-                consecutiveReadFailures++;
-                LogMessage("Card read failed (attempt %d/%d). Card removed or unreadable.", 
-                          consecutiveReadFailures, MAX_CONSECUTIVE_FAILURES);
-                
-                if (consecutiveReadFailures >= MAX_CONSECUTIVE_FAILURES)
-                {
-                    // Only treat as "card removed" after multiple failures
-                    LogMessage("Card considered removed after %d consecutive failures.", MAX_CONSECUTIVE_FAILURES);
-                    lastSeenUID = "";
-                    shouldNotifyUI = true; // Notify UI that card is gone
-                    consecutiveReadFailures = 0; // Reset for next cycle
-                }
-                else
-                {
-                    // Still in retry phase, don't notify UI yet
-                    LogMessage("Retrying card read after delay...");
-                    Sleep(RETRY_DELAY_MS);
-                    continue; // Skip UI notification and state update
-                }
+                LogMessage("_MonitorThreadProc: Failed to read UID after card insertion.");
             }
+        }
+        else if (!cardIsPresent && cardWasPresent)
+        {
+            // Card was just removed.
+            LogMessage("_MonitorThreadProc: Card removed.");
+            lastSeenUID = "";
 
-            // Now, update the shared state safely.
             EnterCriticalSection(&pThis->m_critsecCardState);
-            pThis->m_sCardUID = currentUID;
-            pThis->m_sCardUserName = currentUsername;
+            pThis->m_sCardUID = "";
+            pThis->m_sCardUserName = L"";
             LeaveCriticalSection(&pThis->m_critsecCardState);
 
-            // Only notify the UI if something actually changed
-            if (shouldNotifyUI)
-            {
-                LogMessage("Triggering CredentialsChanged due to card state change.");
-                pThis->m_pcpe->CredentialsChanged(pThis->m_upAdviseContext);
-            }
-            else
-            {
-                LogMessage("No card state change detected, skipping UI notification.");
-            }
+            LogMessage("_MonitorThreadProc: Setting UI notification for card removal.");
+            EnterCriticalSection(&pThis->m_critsecUINotify);
+            pThis->m_bPendingUINotify = TRUE;
+            LeaveCriticalSection(&pThis->m_critsecUINotify);
+        }
+
+        cardWasPresent = cardIsPresent;
+
+        // If the thread is stopping, break the loop.
+        if (pThis->m_bStopMonitor)
+        {
+            break;
         }
     }
 
@@ -337,6 +340,27 @@ IFACEMETHODIMP NFCCredentialProvider::UnAdvise() {
 IFACEMETHODIMP NFCCredentialProvider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, BOOL* pbAutoLogon)
 {
     LogMessage("NFCCredentialProvider::GetCredentialCount");
+
+    // 处理待处理的UI通知（线程安全）
+    BOOL bShouldNotify = FALSE;
+    EnterCriticalSection(&m_critsecUINotify);
+    if (m_bPendingUINotify && m_pcpe)
+    {
+        bShouldNotify = TRUE;
+        m_bPendingUINotify = FALSE;
+    }
+    LeaveCriticalSection(&m_critsecUINotify);
+    
+    if (bShouldNotify)
+    {
+        LogMessage("GetCredentialCount: Processing pending UI notification.");
+        m_pcpe->CredentialsChanged(m_upAdviseContext);
+        // 立即返回，让系统重新调用我们
+        *pdwCount = 0;
+        *pdwDefault = (DWORD)-1;
+        *pbAutoLogon = FALSE;
+        return S_OK;
+    }
 
     // Always release existing credentials before creating new ones.
     for (auto& cred : m_rgpCredentials)

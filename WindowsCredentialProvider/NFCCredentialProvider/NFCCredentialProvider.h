@@ -84,4 +84,8 @@ private:
     CRITICAL_SECTION m_critsecCardState;
     std::string m_sCardUID;
     std::wstring m_sCardUserName;
+    
+    // Thread-safe UI notification flag
+    CRITICAL_SECTION m_critsecUINotify;
+    BOOL m_bPendingUINotify;
 };

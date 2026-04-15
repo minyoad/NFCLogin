@@ -70,7 +70,8 @@ HRESULT AccountManager::InitializeDatabase() {
     return S_OK;
 }
 
-HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstring& username) {
+HRESULT AccountManager::FindUserByNFCCardUID(const std::string& cardUID, std::wstring& username) {
+    LogMessage("FindUserByNFCCardUID: Attempting to find user for UID '%s'", cardUID.c_str());
     if (!m_db) {
         return E_FAIL;
     }
@@ -79,20 +80,22 @@ HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstrin
     username = L"";
     HRESULT hr = E_FAIL;
 
-    const char* sql = "SELECT Username FROM Users WHERE NFCCardId = ?";
+    const char* sql = "SELECT Username FROM Users WHERE UPPER(NFCCardId) = UPPER(?)";
     
     int rc = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr);
     if (rc == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, uid.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 1, cardUID.c_str(), -1, SQLITE_TRANSIENT);
 
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             const unsigned char* result = sqlite3_column_text(stmt, 0);
             if (result) {
                 username = StringToWString(reinterpret_cast<const char*>(result));
+                LogMessage("FindUserByNFCCardUID: Found user '%ls' for UID '%s'", username.c_str(), cardUID.c_str());
                 hr = S_OK;
             }
         }
         else {
+            LogMessage("FindUserByNFCCardUID: User not found for UID '%s'", cardUID.c_str());
             hr = S_FALSE; // Not found
         }
     }
@@ -105,6 +108,7 @@ HRESULT AccountManager::ValidateLocalUserCredentials(const std::wstring& usernam
 {
     std::wstring domain = L".";
     std::wstring user = username;
+    LogMessage("ValidateLocalUserCredentials: Validating user '%ls' with domain '%ls'", user.c_str(), domain.c_str());
 
     size_t slashPos = username.find(L'\\');
     if (slashPos != std::wstring::npos) {
@@ -127,6 +131,7 @@ HRESULT AccountManager::ValidateLocalUserCredentials(const std::wstring& usernam
     if (LogonUserW(user.c_str(), domain.c_str(), password.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &hToken))
     {
         CloseHandle(hToken);
+        LogMessage("ValidateLocalUserCredentials: User '%ls' with domain '%ls' logged in successfully.", user.c_str(), domain.c_str());
         return S_OK;
     }
     return E_ACCESSDENIED;
@@ -172,7 +177,7 @@ HRESULT AccountManager::UserExists(const std::wstring& username, bool& exists) {
 HRESULT AccountManager::GetUserInfo(const std::wstring& username, std::wstring& fullName, bool& isActive) {
     USER_INFO_2* pUserInfo = nullptr;
     NET_API_STATUS status = NetUserGetInfo(nullptr, username.c_str(), 2, (LPBYTE*)&pUserInfo);
-    
+    LogMessage("GetUserInfo: Retrieving info for user '%ls'", username.c_str());
     if (status == NERR_Success) {
         if (pUserInfo->usri2_full_name) {
             fullName = pUserInfo->usri2_full_name;
@@ -183,9 +188,10 @@ HRESULT AccountManager::GetUserInfo(const std::wstring& username, std::wstring& 
         isActive = !(pUserInfo->usri2_flags & UF_ACCOUNTDISABLE);
         
         NetApiBufferFree(pUserInfo);
+        LogMessage("GetUserInfo: Retrieved info for user '%ls' with full name '%ls' and active status %d", fullName.c_str(), username, isActive ? 1 : 0); 
         return S_OK;
     }
-    
+    LogMessage("GetUserInfo: Failed to retrieve info for user '%ls'", username.c_str());
     return HRESULT_FROM_WIN32(status);
 }
 
@@ -215,6 +221,7 @@ HRESULT AccountManager::SetUserActive(const std::wstring& username, bool active)
 HRESULT AccountManager::GetAllBoundNFCCards(std::map<std::string, std::wstring>& cardMappings) {
     cardMappings.clear();
     if (!m_db) {
+        LogMessage("GetAllBoundNFCCards: Database not initialized.");
         return E_FAIL;
     }
 
@@ -236,12 +243,13 @@ HRESULT AccountManager::GetAllBoundNFCCards(std::map<std::string, std::wstring>&
     }
     
     sqlite3_finalize(stmt);
+    LogMessage("GetAllBoundNFCCards: Fetched %d bound cards.", cardMappings.size());
     return S_OK;
 }
 
 HRESULT AccountManager::LoadAccountMappings()
 {
-    // This is now handled by direct DB queries.
+    LogMessage("LoadAccountMappings: Loading account mappings from database.");
     return S_OK;
 }
 

@@ -456,23 +456,18 @@ HRESULT NFCManager::GetCardInfo(NFCCardInfo& cardInfo) {
     return S_OK;
 }
 
-HRESULT NFCManager::WaitForCard(DWORD timeoutMs) {
+HRESULT NFCManager::WaitForCard(SCARD_READERSTATE* rgReaderStates, DWORD timeoutMs) {
     if (!m_bInitialized || m_readerName.empty()) {
         m_lastError = "NFC管理器未初始化或未找到读卡器";
         LogMessage("NFCManager::WaitForCard - Not initialized or no reader.");
         return E_FAIL;
     }
 
-    SCARD_READERSTATE rgReaderStates[1];
-    rgReaderStates[0].szReader = m_readerName.c_str();
-    rgReaderStates[0].dwCurrentState = SCARD_STATE_UNAWARE;
-
-    // 调用 SCardGetStatusChange，它会阻塞直到状态改变或超时
+    // The SCARD_READERSTATE is now managed by the caller. We just use it.
     LogMessage("NFCManager::WaitForCard - Calling SCardGetStatusChange with timeout %dms", timeoutMs);
     LONG lReturn = SCardGetStatusChange(m_hContext, timeoutMs, rgReaderStates, 1);
 
     if (lReturn == SCARD_E_TIMEOUT) {
-        // LogMessage("NFCManager::WaitForCard - Timed out.");
         return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
 
@@ -482,14 +477,14 @@ HRESULT NFCManager::WaitForCard(DWORD timeoutMs) {
         return E_FAIL;
     }
 
-    // 检查状态是否变为有卡
+    // Check if the card is present
     if ((rgReaderStates[0].dwEventState & SCARD_STATE_PRESENT)) {
         LogMessage("NFCManager::WaitForCard - Card is present.");
         return S_OK;
     }
 
     LogMessage("NFCManager::WaitForCard - Card is not present. Event state: 0x%X", rgReaderStates[0].dwEventState);
-    return E_FAIL; // 卡片不存在
+    return E_FAIL; // Card is not present
 }
 
 std::string NFCManager::GetLastErrorMessage() {
