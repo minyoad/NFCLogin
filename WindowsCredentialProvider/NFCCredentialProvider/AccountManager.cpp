@@ -79,7 +79,7 @@ HRESULT AccountManager::FindUserByNFCCardUID(const std::string& uid, std::wstrin
     username = L"";
     HRESULT hr = E_FAIL;
 
-    const char* sql = "SELECT Username FROM Users WHERE NFCCardId = ? AND IsActive = 1";
+    const char* sql = "SELECT Username FROM Users WHERE NFCCardId = ?";
     
     int rc = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr);
     if (rc == SQLITE_OK) {
